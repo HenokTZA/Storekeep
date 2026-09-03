@@ -1,0 +1,86 @@
+import React, { useCallback, useState } from 'react';
+import { Alert, StyleSheet, Text, View } from 'react-native';
+import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
+import { Badge, Button, Card, Icon, Input, Loading, Message, Money, Screen, SectionHeader, Title } from '@/components/ui';
+import { CategoryPicker } from '@/components/CategoryPicker';
+import { apiFetch, errorMessage } from '@/lib/api';
+import { colors, radius, spacing } from '@/theme';
+import type { Product } from '@/types';
+
+export default function ProductEditScreen() {
+  const { productId } = useLocalSearchParams<{ productId: string }>();
+  const [data, setData] = useState<Product | null>(null);
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+  const load = useCallback(async () => { try { setData(await apiFetch<Product>(`/products/${productId}/`)); } catch (nextError) { setError(errorMessage(nextError)); } }, [productId]);
+  useFocusEffect(useCallback(() => { load(); }, [load]));
+  if (!data) return <Screen scroll={false}><Loading /></Screen>;
+  const update = <K extends keyof Product>(key: K, value: Product[K]) => setData(current => current ? { ...current, [key]: value } : current);
+  const save = async () => {
+    setBusy(true);
+    setError('');
+    try {
+      await apiFetch(`/products/${productId}/`, { method: 'PATCH', body: JSON.stringify({ name: data.name, sku: data.sku, category: data.category, unit: data.unit, purchase_price: data.purchase_price, selling_price: data.selling_price, minimum_stock_threshold: data.minimum_stock_threshold, supplier: data.supplier, notes: data.notes }) });
+      router.back();
+    } catch (nextError) {
+      setError(errorMessage(nextError));
+    } finally {
+      setBusy(false);
+    }
+  };
+  const archive = () => Alert.alert('Archive product?', 'Historical sales and stock movements will remain available.', [{ text: 'Cancel' }, { text: 'Archive', style: 'destructive', onPress: async () => { try { await apiFetch(`/products/${productId}/`, { method: 'DELETE' }); router.back(); } catch (nextError) { setError(errorMessage(nextError)); } } }]);
+  return (
+    <Screen>
+      <Title eyebrow="Inventory" subtitle="Update product details without changing recorded history">Edit Product</Title>
+      {error ? <Message text={error} tone="error" /> : null}
+      <Card style={styles.identityCard}>
+        <View style={styles.productIcon}><Icon name="cube-outline" size={25} color={colors.primary} /></View>
+        <View style={styles.flex}><Text style={styles.name}>{data.name}</Text><Text style={styles.sku}>{data.sku} · {data.unit}</Text><Badge label={data.is_low_stock ? 'LOW STOCK' : 'IN STOCK'} tone={data.is_low_stock ? 'warning' : 'success'} /></View>
+        <View style={styles.stock}><Text style={styles.stockLabel}>CURRENT</Text><Text style={styles.stockValue}>{data.current_quantity}</Text><Text style={styles.stockUnit}>{data.unit}</Text></View>
+      </Card>
+
+      <Card style={styles.formCard}>
+        <SectionHeader title="Product details" />
+        <Input label="Product Name" icon="cube-outline" value={data.name} onChangeText={value => update('name', value)} />
+        <Input label="SKU" icon="barcode-outline" value={data.sku} onChangeText={value => update('sku', value)} />
+        <CategoryPicker value={data.category} onChange={value => update('category', value)} />
+        <Input label="Unit" icon="layers-outline" value={data.unit} onChangeText={value => update('unit', value)} />
+      </Card>
+
+      <Card style={styles.formCard}>
+        <SectionHeader title="Pricing & alerts" />
+        <View style={styles.row}>
+          <View style={styles.flex}><Input label="Purchase Price" icon="arrow-down-outline" value={data.purchase_price} onChangeText={value => update('purchase_price', value)} keyboardType="decimal-pad" /></View>
+          <View style={styles.flex}><Input label="Selling Price" icon="arrow-up-outline" value={data.selling_price} onChangeText={value => update('selling_price', value)} keyboardType="decimal-pad" /></View>
+        </View>
+        <View style={styles.agentPrice}><Text style={styles.agentLabel}>Agent selling price</Text><Money value={data.agent_selling_price} color={colors.success} size="small" /></View>
+        <Input label="Low-stock Threshold" icon="warning-outline" value={data.minimum_stock_threshold} onChangeText={value => update('minimum_stock_threshold', value)} keyboardType="decimal-pad" />
+        <Input label="Supplier" icon="business-outline" value={data.supplier} onChangeText={value => update('supplier', value)} />
+        <Input label="Notes" icon="document-text-outline" value={data.notes} onChangeText={value => update('notes', value)} multiline />
+      </Card>
+
+      <Button title={busy ? 'Saving…' : 'Save Changes'} icon="checkmark-circle-outline" onPress={save} disabled={busy} />
+      <View style={styles.dangerZone}><View style={styles.dangerCopy}><Text style={styles.dangerTitle}>Archive this product</Text><Text style={styles.dangerText}>Historical sales and movements remain available.</Text></View><Button title="Archive" icon="archive-outline" compact variant="danger" onPress={archive} /></View>
+    </Screen>
+  );
+}
+
+const styles = StyleSheet.create({
+  flex: { flex: 1 },
+  identityCard: { flexDirection: 'row', alignItems: 'center', gap: spacing.mdSm },
+  productIcon: { width: 54, height: 54, borderRadius: radius.md, backgroundColor: colors.primarySoft, alignItems: 'center', justifyContent: 'center' },
+  name: { color: colors.text, fontSize: 17, fontWeight: '900' },
+  sku: { color: colors.muted, fontSize: 12, marginTop: 2, marginBottom: 5 },
+  stock: { alignItems: 'flex-end' },
+  stockLabel: { color: colors.muted, fontSize: 9, fontWeight: '900', letterSpacing: 0.5 },
+  stockValue: { color: colors.primary, fontSize: 22, fontWeight: '900' },
+  stockUnit: { color: colors.muted, fontSize: 10 },
+  formCard: { gap: spacing.md },
+  row: { flexDirection: 'row', gap: spacing.sm },
+  agentPrice: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: colors.successSoft, borderRadius: radius.md, padding: spacing.mdSm },
+  agentLabel: { color: colors.success, fontSize: 12, fontWeight: '900' },
+  dangerZone: { flexDirection: 'row', alignItems: 'center', gap: spacing.md, backgroundColor: colors.dangerSoft, borderWidth: 1, borderColor: colors.dangerBorder, borderRadius: radius.lg, padding: spacing.md },
+  dangerCopy: { flex: 1 },
+  dangerTitle: { color: colors.danger, fontSize: 14, fontWeight: '900' },
+  dangerText: { color: colors.muted, fontSize: 11, lineHeight: 16, marginTop: 2 },
+});

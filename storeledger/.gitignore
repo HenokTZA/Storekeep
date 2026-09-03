@@ -1,0 +1,12 @@
+.env
+.venv/
+__pycache__/
+*.py[cod]
+*.sqlite3
+backend/media/
+backend/staticfiles/
+mobile/node_modules/
+mobile/.expo/
+mobile/dist*/
+*.log
+*.zip
