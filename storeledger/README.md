@@ -6,10 +6,14 @@ StoreLedger is an SRS-complete test build for Android and responsive desktop bro
 
 - Multi-store users with Owner, Manager, Cashier and Viewer roles
 - Products, categories, stock receipt, adjustments and immutable stock history
+- Distributor pack sizes with inventory tracked in units and explicit pieces-per-unit configuration
 - Traders and Agents with separate mobile views and shared financial logic
 - Walk-in, Trader and Agent sales
 - Mandatory Agent pricing at 1.5% below each product's saved selling price, enforced by the API
 - Partial payments and automatic stock reduction
+- Three-at-a-time sale product pages with server-side name/SKU search and popular products first
+- Distributor sale totals calculated as units × pieces per unit × price per piece
+- Invoice preview before posting plus authenticated PDF invoice download/share from Transactions
 - Red `Owes Me`, green `I Owe`, and neutral `Settled` balances
 - Clickable dashboard totals with full sale, collection, balance, expense and transaction drill-downs
 - Append-only financial transaction history and running balances
@@ -25,6 +29,7 @@ StoreLedger is an SRS-complete test build for Android and responsive desktop bro
 - Expense categories, immutable expense entries, reversal history and category/daily charts
 - Monthly expense budgets with progress and over-budget warnings
 - Atomic supplier purchases that receive stock and post supplier payables together
+- Purchase totals calculated from received units, snapshotted pack size and cost per piece
 - Explicit Payment Received and Payment Sent workflows
 - Purchase amounts paid now and Payment Sent records included in daily/monthly cash-out totals and exact drill-downs
 - Configurable overdue aging with debtor lists and charts

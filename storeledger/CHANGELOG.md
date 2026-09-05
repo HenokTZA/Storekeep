@@ -1,5 +1,23 @@
 # Changelog
 
+## 1.6.0 — Sale quantity and navigation polish
+
+- Replaced the vertical product quantity control with a clear horizontal minus, unit count and plus row.
+- Increased the quantity controls to comfortable 42-point touch targets and disabled minus when the selected quantity is zero.
+- Moved the center Sale tab label lower so it no longer visually overlaps the floating plus button.
+
+## 1.5.0 — Distributor pack sales and sale invoices
+
+- Added server-side product search to New Sale with three-product pages, Previous/Next navigation and popular products first.
+- Added configurable `pieces_per_unit` to product creation/editing and clear pack information throughout stock, sale and purchase screens.
+- Changed sale totals to the distributor formula: units × pieces per unit × selling price per piece.
+- Applied the same pack snapshot and per-piece calculation to supplier purchases while inventory continues to move in pack units.
+- Snapshotted pack size, price per piece and totals on each posted line so later product edits cannot change historical documents.
+- Added a professional invoice preview before final sale confirmation.
+- Added authenticated PDF invoice generation for every sale.
+- Added Download and Share actions to each posted sale transaction, including the Android document-folder picker and native WhatsApp/Telegram share sheet.
+- Added migration, API, calculation, historical-snapshot, invoice-PDF and three-item pagination tests.
+
 ## 1.4.0 — Android safe areas and complete cash-out tracking
 
 - Added top safe-area protection to every primary tab so headings and dashboard content stay below the Android status bar.

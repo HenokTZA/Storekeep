@@ -6,7 +6,7 @@ import { apiFetch, errorMessage } from '@/lib/api';
 import { colors, radius, spacing } from '@/theme';
 
 export default function StockAdjustScreen() {
-  const { productId, name, mode = 'received' } = useLocalSearchParams<{ productId: string; name: string; mode?: string }>();
+  const { productId, name, piecesPerUnit = '1', unit = 'unit', mode = 'received' } = useLocalSearchParams<{ productId: string; name: string; piecesPerUnit?: string; unit?: string; mode?: string }>();
   const adjusting = mode === 'adjust';
   const [direction, setDirection] = useState<'increase' | 'decrease'>('increase');
   const [quantity, setQuantity] = useState('');
@@ -34,7 +34,7 @@ export default function StockAdjustScreen() {
       {error ? <Message text={error} tone="error" /> : null}
       <Card style={styles.productCard}>
         <View style={styles.productIcon}><Icon name="cube-outline" size={25} color={colors.primary} /></View>
-        <View style={styles.flex}><Text style={styles.productName}>{name}</Text><Text style={styles.small}>{adjusting ? 'Manual stock correction' : 'Stock receipt'}</Text></View>
+        <View style={styles.flex}><Text style={styles.productName}>{name}</Text><Text style={styles.small}>{adjusting ? 'Manual stock correction' : 'Stock receipt'} · ×{piecesPerUnit} pieces per {unit}</Text></View>
       </Card>
 
       {adjusting ? (
@@ -48,9 +48,9 @@ export default function StockAdjustScreen() {
       ) : null}
 
       <Card style={styles.formCard}>
-        <Input label={adjusting ? 'Adjustment Quantity' : 'Quantity Received'} icon={direction === 'decrease' ? 'remove-circle-outline' : 'add-circle-outline'} value={quantity} onChangeText={setQuantity} keyboardType="decimal-pad" autoFocus placeholder="0" />
+        <Input label={adjusting ? 'Units to Adjust' : 'Units Received'} icon={direction === 'decrease' ? 'remove-circle-outline' : 'add-circle-outline'} value={quantity} onChangeText={setQuantity} keyboardType="decimal-pad" autoFocus placeholder="0" hint={`One ${unit} contains ${piecesPerUnit} individual pieces.`} />
         <Input label="Reason / Note" icon="document-text-outline" value={note} onChangeText={setNote} multiline placeholder="Why is this stock changing?" />
-        {Number(quantity) > 0 ? <View style={[styles.preview, { backgroundColor: direction === 'decrease' ? colors.dangerSoft : colors.successSoft }]}><Icon name={direction === 'decrease' ? 'trending-down-outline' : 'trending-up-outline'} size={23} color={direction === 'decrease' ? colors.danger : colors.success} /><Text style={[styles.previewText, { color: direction === 'decrease' ? colors.danger : colors.success }]}>{direction === 'decrease' ? 'Decrease' : 'Increase'} stock by {Number(quantity).toLocaleString()}</Text></View> : null}
+        {Number(quantity) > 0 ? <View style={[styles.preview, { backgroundColor: direction === 'decrease' ? colors.dangerSoft : colors.successSoft }]}><Icon name={direction === 'decrease' ? 'trending-down-outline' : 'trending-up-outline'} size={23} color={direction === 'decrease' ? colors.danger : colors.success} /><Text style={[styles.previewText, { color: direction === 'decrease' ? colors.danger : colors.success }]}>{direction === 'decrease' ? 'Decrease' : 'Increase'} by {Number(quantity).toLocaleString()} units ({(Number(quantity) * Number(piecesPerUnit)).toLocaleString()} pieces)</Text></View> : null}
       </Card>
       <Button title={busy ? 'Saving…' : adjusting ? 'Save Adjustment' : 'Receive Stock'} icon="checkmark-circle-outline" onPress={save} disabled={busy || Number(quantity) <= 0 || !note.trim()} />
       <Message text="This movement will be recorded with its note, user and timestamp." />

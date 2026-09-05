@@ -16,7 +16,7 @@ class MembershipAdmin(admin.ModelAdmin):
 
 @admin.register(models.Product)
 class ProductAdmin(admin.ModelAdmin):
-    list_display = ("name", "sku", "store", "selling_price", "is_active")
+    list_display = ("name", "sku", "store", "pieces_per_unit", "selling_price", "is_active")
     list_filter = ("store", "is_active")
     search_fields = ("name", "sku")
 

@@ -16,6 +16,7 @@ Use `Authorization: Bearer <access-token>`. When a user belongs to more than one
 - `GET /dashboard/details/?kind=today_sales|collected|owes_me|i_owe|today_expenses|month_expenses|today_transactions`
 - CRUD `/categories/`
 - CRUD `/products/`
+- `GET /products/?page_size=3&common=1&search=...` for the sale picker; returns popular matching products in three-item pages
 - `POST /products/{id}/add_stock/`
 - `POST /products/{id}/adjust_stock/`
 - `GET /products/{id}/history/`
@@ -24,6 +25,7 @@ Use `Authorization: Bearer <access-token>`. When a user belongs to more than one
 - `POST /parties/{id}/credit/`
 - `GET /parties/overdue/` (uses the store threshold, or `?days=30`)
 - create/list/retrieve `/sales/`
+- `GET /sales/{id}/invoice/` downloads the authenticated store-scoped PDF invoice
 - create/list/retrieve `/payments/`
 - CRUD `/expense-categories/` (archive instead of destructive delete)
 - create/list/retrieve `/expenses/`
@@ -49,6 +51,9 @@ List endpoints are paginated as `{count, next, previous, results}` and support `
 ## Pricing and dashboard rules
 
 - Product responses include both `selling_price` and calculated `agent_selling_price`.
+- `pieces_per_unit` defines the number of individual pieces in one inventory/sale unit. Product prices are per piece; `pack_selling_price` and `agent_pack_selling_price` expose the calculated whole-unit values.
+- Sale totals use `quantity × pieces_per_unit × unit_price`. Sale item `quantity` is the number of packs/units, `unit_price` is the price per piece, and the saved `pieces_per_unit` is an immutable historical snapshot.
+- Purchase totals use the corresponding `quantity × pieces_per_unit × unit_cost` formula while stock increases by the received unit quantity.
 - For an Agent customer, `POST /sales/` always uses `agent_selling_price`, exactly 1.5% below the saved product selling price. A submitted `unit_price` cannot override this rule.
 - `today_transaction_count` and `kind=today_transactions` use the same definition: completed sales plus standalone payments received/sent, purchase-linked payments and active expenses recorded today.
 - `total_collected` remains incoming money only: amounts collected with sales plus standalone payments received today.

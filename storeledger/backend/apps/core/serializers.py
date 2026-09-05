@@ -70,6 +70,8 @@ class ProductSerializer(serializers.ModelSerializer):
     current_quantity = serializers.SerializerMethodField()
     is_low_stock = serializers.SerializerMethodField()
     agent_selling_price = serializers.SerializerMethodField()
+    pack_selling_price = serializers.SerializerMethodField()
+    agent_pack_selling_price = serializers.SerializerMethodField()
     initial_quantity = serializers.DecimalField(max_digits=18, decimal_places=3, min_value=0, write_only=True, required=False, default=0)
 
     class Meta:
@@ -81,9 +83,12 @@ class ProductSerializer(serializers.ModelSerializer):
             "category",
             "category_name",
             "unit",
+            "pieces_per_unit",
             "purchase_price",
             "selling_price",
             "agent_selling_price",
+            "pack_selling_price",
+            "agent_pack_selling_price",
             "minimum_stock_threshold",
             "supplier",
             "notes",
@@ -94,10 +99,25 @@ class ProductSerializer(serializers.ModelSerializer):
             "created_at",
             "updated_at",
         )
-        read_only_fields = ("agent_selling_price", "current_quantity", "is_low_stock", "is_active", "created_at", "updated_at")
+        read_only_fields = (
+            "agent_selling_price",
+            "pack_selling_price",
+            "agent_pack_selling_price",
+            "current_quantity",
+            "is_low_stock",
+            "is_active",
+            "created_at",
+            "updated_at",
+        )
 
     def get_agent_selling_price(self, obj):
         return str(agent_selling_price(obj.selling_price))
+
+    def get_pack_selling_price(self, obj):
+        return str(money(obj.selling_price * obj.pieces_per_unit))
+
+    def get_agent_pack_selling_price(self, obj):
+        return str(money(agent_selling_price(obj.selling_price) * obj.pieces_per_unit))
 
     def get_current_quantity(self, obj):
         return getattr(getattr(obj, "inventory", None), "quantity", 0)
@@ -201,9 +221,29 @@ class SaleItemInputSerializer(serializers.Serializer):
 
 
 class SaleItemSerializer(serializers.ModelSerializer):
+    total_pieces = serializers.SerializerMethodField()
+    pack_price = serializers.SerializerMethodField()
+
+    def get_total_pieces(self, obj):
+        return str(obj.quantity * obj.pieces_per_unit)
+
+    def get_pack_price(self, obj):
+        return str(money(obj.unit_price * obj.pieces_per_unit))
+
     class Meta:
         model = SaleItem
-        fields = ("id", "product", "product_name", "sku", "quantity", "unit_price", "line_total")
+        fields = (
+            "id",
+            "product",
+            "product_name",
+            "sku",
+            "quantity",
+            "pieces_per_unit",
+            "total_pieces",
+            "unit_price",
+            "pack_price",
+            "line_total",
+        )
 
 
 class SaleSerializer(serializers.ModelSerializer):
@@ -437,9 +477,29 @@ class PurchaseItemInputSerializer(serializers.Serializer):
 
 
 class PurchaseItemSerializer(serializers.ModelSerializer):
+    total_pieces = serializers.SerializerMethodField()
+    pack_cost = serializers.SerializerMethodField()
+
+    def get_total_pieces(self, obj):
+        return str(obj.quantity * obj.pieces_per_unit)
+
+    def get_pack_cost(self, obj):
+        return str(money(obj.unit_cost * obj.pieces_per_unit))
+
     class Meta:
         model = PurchaseItem
-        fields = ("id", "product", "product_name", "sku", "quantity", "unit_cost", "line_total")
+        fields = (
+            "id",
+            "product",
+            "product_name",
+            "sku",
+            "quantity",
+            "pieces_per_unit",
+            "total_pieces",
+            "unit_cost",
+            "pack_cost",
+            "line_total",
+        )
 
 
 class PurchaseSerializer(serializers.ModelSerializer):

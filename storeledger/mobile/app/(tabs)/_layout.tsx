@@ -25,7 +25,7 @@ export default function TabLayout() {
     }}>
       <Tabs.Screen name="index" options={{ title: 'Home', tabBarIcon: ({ color }) => <TabIcon name="home-outline" color={color} /> }} />
       <Tabs.Screen name="stock" options={{ title: 'Stock', tabBarIcon: ({ color }) => <TabIcon name="cube-outline" color={color} /> }} />
-      <Tabs.Screen name="sale" options={{ title: 'Sale', tabBarIcon: ({ color }) => <SaleIcon color={color} />, tabBarItemStyle: styles.saleItem }} />
+      <Tabs.Screen name="sale" options={{ title: 'Sale', tabBarIcon: ({ color }) => <SaleIcon color={color} />, tabBarItemStyle: styles.saleItem, tabBarLabelStyle: styles.saleLabel }} />
       <Tabs.Screen name="customers" options={{ title: 'People', tabBarIcon: ({ color }) => <TabIcon name="people-outline" color={color} /> }} />
       <Tabs.Screen name="more" options={{ title: 'More', tabBarIcon: ({ color }) => <TabIcon name="ellipsis-horizontal" color={color} /> }} />
     </Tabs>
@@ -34,5 +34,6 @@ export default function TabLayout() {
 
 const styles = StyleSheet.create({
   saleItem: { marginTop: -12 },
+  saleLabel: { fontSize: 11, fontWeight: '800', marginTop: 13 },
   saleIcon: { width: 52, height: 52, borderRadius: 26, backgroundColor: colors.primaryButton, alignItems: 'center', justifyContent: 'center', borderWidth: 4, borderColor: colors.surface, ...shadow.floating },
 });

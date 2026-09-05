@@ -28,18 +28,19 @@ class Command(BaseCommand):
         Membership.objects.update_or_create(user=user, store=store, defaults={"role": Membership.Role.OWNER, "is_active": True})
         category, _ = Category.objects.get_or_create(store=store, name="Electronics")
         product_specs = [
-            ("ESP32 Module", "ESP32-DEV", "450.00", "12"),
-            ("LED Driver", "LED-DRV-12", "100.00", "20"),
-            ("USB-C Cable", "USBC-1M", "180.00", "4"),
+            ("ESP32 Module", "ESP32-DEV", "450.00", "12", 50),
+            ("LED Driver", "LED-DRV-12", "100.00", "20", 54),
+            ("USB-C Cable", "USBC-1M", "180.00", "4", 60),
         ]
         products = []
-        for name, sku, price, opening in product_specs:
+        for name, sku, price, opening, pieces_per_unit in product_specs:
             product, product_created = Product.objects.get_or_create(
                 store=store,
                 sku=sku,
                 defaults={
                     "name": name,
                     "category": category,
+                    "pieces_per_unit": pieces_per_unit,
                     "selling_price": Decimal(price),
                     "purchase_price": Decimal(price) * Decimal("0.75"),
                     "minimum_stock_threshold": Decimal("5"),

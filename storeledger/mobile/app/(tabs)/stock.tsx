@@ -45,7 +45,7 @@ export default function StockScreen() {
             <View style={[styles.productIcon, product.is_low_stock && styles.productIconLow]}><Icon name="cube-outline" size={23} color={product.is_low_stock ? colors.warning : colors.primary} /></View>
             <View style={styles.productCopy}>
               <Text style={styles.name}>{product.name}</Text>
-              <Text style={styles.sku}>{product.sku} · {product.unit}{product.category_name ? ` · ${product.category_name}` : ''}</Text>
+              <Text style={styles.sku}>{product.sku} · {product.unit} × {product.pieces_per_unit} pcs{product.category_name ? ` · ${product.category_name}` : ''}</Text>
             </View>
             {product.is_low_stock ? <Badge label="LOW STOCK" tone="warning" /> : <Badge label="IN STOCK" tone="success" />}
           </View>
@@ -56,14 +56,15 @@ export default function StockScreen() {
               <Text style={[styles.quantity, product.is_low_stock && styles.quantityLow]}>{Number(product.current_quantity).toLocaleString()} {product.unit}</Text>
             </View>
             <View style={styles.metricRight}>
-              <Text style={styles.metricLabel}>Selling price</Text>
+              <Text style={styles.metricLabel}>Price / piece</Text>
               <Money value={product.selling_price} size="small" />
+              <Text style={styles.packPrice}>{Number(product.pack_selling_price).toLocaleString(undefined, { minimumFractionDigits: 2 })} ETB / {product.unit}</Text>
             </View>
           </View>
 
           <View style={styles.actions}>
-            <Action icon="add-circle-outline" label="Receive" onPress={() => router.push({ pathname: '/stock-adjust', params: { productId: String(product.id), name: product.name, mode: 'received' } })} />
-            <Action icon="options-outline" label="Adjust" onPress={() => router.push({ pathname: '/stock-adjust', params: { productId: String(product.id), name: product.name, mode: 'adjust' } })} />
+            <Action icon="add-circle-outline" label="Receive" onPress={() => router.push({ pathname: '/stock-adjust', params: { productId: String(product.id), name: product.name, piecesPerUnit: String(product.pieces_per_unit), unit: product.unit, mode: 'received' } })} />
+            <Action icon="options-outline" label="Adjust" onPress={() => router.push({ pathname: '/stock-adjust', params: { productId: String(product.id), name: product.name, piecesPerUnit: String(product.pieces_per_unit), unit: product.unit, mode: 'adjust' } })} />
             <Action icon="time-outline" label="History" onPress={() => router.push({ pathname: '/stock-history', params: { productId: String(product.id), name: product.name } })} />
             <Action icon="create-outline" label="Edit" onPress={() => router.push({ pathname: '/product-edit', params: { productId: String(product.id) } })} />
           </View>
@@ -101,6 +102,7 @@ const styles = StyleSheet.create({
   metric: { flex: 1 },
   metricRight: { flex: 1, alignItems: 'flex-end' },
   metricLabel: { color: colors.muted, fontSize: 11, fontWeight: '800', marginBottom: 4 },
+  packPrice: { color: colors.primary, fontSize: 10, fontWeight: '800', marginTop: 3 },
   quantity: { color: colors.text, fontSize: 16, lineHeight: 21, fontWeight: '900' },
   quantityLow: { color: colors.warning },
   actions: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.xs },

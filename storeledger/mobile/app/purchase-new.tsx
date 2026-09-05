@@ -35,7 +35,7 @@ export default function PurchaseNewScreen() {
     }
   }, [supplierId]);
   useFocusEffect(useCallback(() => { load(); }, [load]));
-  const total = useMemo(() => lines.reduce((sum, line) => sum + Number(line.quantity || 0) * Number(line.unitCost || 0), 0), [lines]);
+  const total = useMemo(() => lines.reduce((sum, line) => sum + Number(line.quantity || 0) * Number(line.product.pieces_per_unit || 1) * Number(line.unitCost || 0), 0), [lines]);
   const addLine = (product: Product) => setLines(current => current.some(line => line.product.id === product.id) ? current : [...current, { product, quantity: '1', unitCost: product.purchase_price }]);
   const updateLine = (productId: number, field: 'quantity' | 'unitCost', value: string) => setLines(current => current.map(line => line.product.id === productId ? { ...line, [field]: value } : line));
   const save = async () => {
@@ -66,16 +66,16 @@ export default function PurchaseNewScreen() {
       <SectionHeader title="2. Products received" subtitle={`${lines.length} selected product line${lines.length === 1 ? '' : 's'}`} />
       {available.length ? <View style={styles.productPicker}>{available.map(product => <Choice key={product.id} icon="add-circle-outline" label={product.name} active={false} onPress={() => addLine(product)} />)}</View> : <Message text="Every active product is already included in this purchase." tone="success" />}
       {lines.map(lineItem => {
-        const lineTotal = Number(lineItem.quantity || 0) * Number(lineItem.unitCost || 0);
+        const lineTotal = Number(lineItem.quantity || 0) * Number(lineItem.product.pieces_per_unit || 1) * Number(lineItem.unitCost || 0);
         return (
           <Card key={lineItem.product.id}>
             <View style={styles.productRow}>
               <View style={styles.productIcon}><Icon name="cube-outline" size={22} color={colors.primary} /></View>
-              <View style={styles.flex}><Text style={styles.name}>{lineItem.product.name}</Text><Text style={styles.small}>{lineItem.product.sku} · current stock {lineItem.product.current_quantity}</Text></View>
+              <View style={styles.flex}><Text style={styles.name}>{lineItem.product.name}</Text><Text style={styles.small}>{lineItem.product.sku} · ×{lineItem.product.pieces_per_unit} pcs / unit · stock {lineItem.product.current_quantity} units</Text></View>
               <Pressable accessibilityLabel={`Remove ${lineItem.product.name}`} onPress={() => setLines(current => current.filter(item => item.product.id !== lineItem.product.id))} style={styles.removeButton}><Icon name="trash-outline" size={18} color={colors.danger} /></Pressable>
             </View>
-            <View style={styles.inputs}><View style={styles.flex}><Input label="Quantity" value={lineItem.quantity} onChangeText={value => updateLine(lineItem.product.id, 'quantity', value)} keyboardType="decimal-pad" /></View><View style={styles.flex}><Input label="Unit Cost" value={lineItem.unitCost} onChangeText={value => updateLine(lineItem.product.id, 'unitCost', value)} keyboardType="decimal-pad" /></View></View>
-            <View style={styles.lineTotalRow}><Text style={styles.lineTotalLabel}>Line total</Text><Money value={lineTotal} size="small" /></View>
+            <View style={styles.inputs}><View style={styles.flex}><Input label="Units" value={lineItem.quantity} onChangeText={value => updateLine(lineItem.product.id, 'quantity', value)} keyboardType="decimal-pad" /></View><View style={styles.flex}><Input label="Cost / Piece" value={lineItem.unitCost} onChangeText={value => updateLine(lineItem.product.id, 'unitCost', value)} keyboardType="decimal-pad" /></View></View>
+            <View style={styles.lineTotalRow}><View><Text style={styles.lineTotalLabel}>Line total</Text><Text style={styles.small}>{lineItem.quantity || 0} units × {lineItem.product.pieces_per_unit} pcs × {lineItem.unitCost || 0}</Text></View><Money value={lineTotal} size="small" /></View>
           </Card>
         );
       })}

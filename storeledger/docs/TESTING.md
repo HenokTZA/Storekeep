@@ -52,12 +52,13 @@ Login: `owner` / `ChangeMe123!`.
 
 1. Search for `USB` and by SKU `USBC-1M`.
 2. Confirm USB-C Cable is low at four units with the default threshold of five.
-3. Add a product with category, prices, quantity, unit, threshold, supplier and notes.
-4. Edit every product field, including category and threshold.
+3. Add a product with category, per-piece prices, opening units, pack name, pieces per unit, threshold, supplier and notes.
+4. Edit every product field, including category, pieces per unit and threshold. Confirm old posted sale lines retain their original pack size.
 5. Receive stock, then make one manual increase and one manual decrease with reasons.
 6. Open Stock History and confirm opening, receipt, sale and adjustment movements cannot be edited.
 7. Archive a product and confirm historical records remain.
 8. Confirm negative stock is rejected while Prevent Negative Inventory is enabled.
+9. In New Sale, confirm each product uses one horizontal `minus → unit count → plus` control and that minus is disabled at zero.
 
 ## Traders and Agents
 
@@ -74,15 +75,21 @@ Repeat for both customer types:
 
 ## Sales, balances and payments
 
-1. Create a Trader sale for ten units with a partial payment; verify total/outstanding and automatic stock reduction.
-2. Confirm the balance is red and labeled `Owes Me`.
-3. Record a partial payment and confirm the balance decreases.
-4. Record a payment larger than the balance and confirm it becomes green `I Owe`.
-5. Record the exact remaining amount on another customer and confirm `Settled`.
-6. Create an Agent sale for a product priced at 100.00 ETB. Confirm the app shows 98.50 ETB and the saved sale item remains 98.50 ETB.
-7. Create a fully paid walk-in sale. Confirm an underpaid walk-in sale is rejected.
-8. Turn off Wi-Fi while preparing a sale. Confirm the draft survives navigation/restart but posting is blocked.
-9. Reconnect and post once. Confirm stock and money are not duplicated on retry.
+1. Add at least seven products, then open New Sale. Confirm exactly three product cards are visible at once and Previous/Next moves through the complete catalog in three-item pages.
+2. Search by a product name and by SKU. Confirm matching products are returned from the server even when they were not on the current page.
+3. Configure a product at `200.00` ETB per piece and `54` pieces per unit. Add one unit and confirm the calculation and total are `1 × 54 × 200.00 = 10,800.00 ETB`.
+4. Tap View Invoice before posting. Confirm customer, every product, units, pieces per unit, total pieces, per-piece price, line totals, amount paid and outstanding are correct.
+5. Confirm the sale, open Transactions, and use Download to save the PDF into an Android folder.
+6. Use Share and confirm the native chooser offers installed compatible apps such as WhatsApp or Telegram; open the shared PDF and recheck the calculation.
+7. Create a Trader sale for ten units with a partial payment; verify total/outstanding and automatic stock reduction by ten units, not by the number of pieces.
+8. Confirm the balance is red and labeled `Owes Me`.
+9. Record a partial payment and confirm the balance decreases.
+10. Record a payment larger than the balance and confirm it becomes green `I Owe`.
+11. Record the exact remaining amount on another customer and confirm `Settled`.
+12. Create an Agent sale for a one-piece product priced at 100.00 ETB. Confirm the app shows 98.50 ETB and the saved sale item remains 98.50 ETB. Repeat with a multi-piece pack and confirm the discount applies to each piece before multiplication.
+13. Create a fully paid walk-in sale. Confirm an underpaid walk-in sale is rejected.
+14. Turn off Wi-Fi while preparing a sale. Confirm the draft survives navigation/restart but posting is blocked.
+15. Reconnect and post once. Confirm stock and money are not duplicated on retry.
 
 ## Expenses and budgets
 
@@ -96,7 +103,7 @@ Repeat for both customer types:
 ## Purchases and outgoing payments
 
 1. Open More → Purchases and confirm the seeded supplier purchase appears.
-2. Receive a new purchase with a supplier, multiple products, quantities, unit costs, date, partial payment and reference. Use a total of 1,000 ETB and Amount Paid Now of 300 ETB.
+2. Receive a new purchase with a supplier, multiple products, unit quantities, per-piece costs, date, partial payment and reference. Confirm each line uses `units × pieces per unit × cost per piece`. Use a total of 1,000 ETB and Amount Paid Now of 300 ETB.
 3. Confirm every product stock quantity increases exactly once.
 4. Confirm Today's Expenses, Month Expenses and Today's Transactions increase by exactly 300 ETB/one record—not by the 1,000 ETB purchase total—and the detail page labels it as a purchase amount paid now.
 5. Confirm the unpaid 700 ETB appears as green `I Owe` on the supplier profile.
@@ -114,14 +121,16 @@ Repeat for both customer types:
 5. Confirm page headings, labels, card borders, inputs, buttons and selected filters remain clearly visible throughout Dashboard, Stock, Sale, Customers, More and every linked screen.
 6. On Dashboard, Stock, Sale, Customers and More, confirm content starts below the time/battery area and tabs end above Android's Home/Back/Recent buttons.
 7. Confirm red is used for money owed to the store, green for store payables/success, and orange for warnings without any white-on-white content.
+8. Confirm the center Sale label sits clearly below the floating plus button without touching or overlapping it.
 
 ## Transactions and notifications
 
-1. Search and filter Transactions by sale, payment and credit.
+1. Search and filter Transactions by sale, payment, purchase and credit.
 2. Confirm date/time, customer/type, description, sale/payment amount, credit/debit, note and running balance.
-3. Trigger low stock and confirm one orange alert appears on Dashboard, Stock and Notifications.
-4. Change stock while it remains below the same threshold and confirm duplicate active alerts are not created.
-5. Receive enough stock and confirm the alert resolves.
+3. Confirm sale transactions show Download and Share invoice actions at the lower right and non-sale transactions do not show misleading invoice actions.
+4. Trigger low stock and confirm one orange alert appears on Dashboard, Stock and Notifications.
+5. Change stock while it remains below the same threshold and confirm duplicate active alerts are not created.
+6. Receive enough stock and confirm the alert resolves.
 
 ## SMS
 

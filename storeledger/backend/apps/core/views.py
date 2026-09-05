@@ -2,7 +2,7 @@ import csv
 import json
 from datetime import date, timedelta
 from decimal import Decimal
-from io import StringIO
+from io import BytesIO, StringIO
 from zoneinfo import ZoneInfo
 
 from django.core.serializers.json import DjangoJSONEncoder
@@ -57,7 +57,7 @@ from .serializers import (
     UserSerializer,
     MonthlyBudgetSerializer,
 )
-from .services import ExpenseService, InventoryService, PaymentService, ReportService, SMSService, local_period_datetimes, money
+from .services import ExpenseService, InventoryService, PaymentService, ReportService, SMSService, SaleInvoiceService, local_period_datetimes, money
 from .tenant import StoreContextMixin, resolve_store
 
 
@@ -118,6 +118,13 @@ class ProductViewSet(StoreViewSetMixin, viewsets.ModelViewSet):
         queryset = Product.objects.select_related("category", "inventory").filter(store=self.get_store(), is_active=True)
         if self.request.query_params.get("low_stock") in {"1", "true"}:
             queryset = queryset.filter(inventory__quantity__lte=F("minimum_stock_threshold"))
+        if self.request.query_params.get("common") in {"1", "true"}:
+            queryset = queryset.annotate(
+                completed_sale_count=Count(
+                    "sale_items",
+                    filter=Q(sale_items__sale__status=Sale.Status.COMPLETED),
+                )
+            ).order_by("-completed_sale_count", "name", "id")
         return queryset
 
     def perform_create(self, serializer):
@@ -263,6 +270,17 @@ class SaleViewSet(StoreViewSetMixin, mixins.CreateModelMixin, mixins.ListModelMi
     def create(self, request, *args, **kwargs):
         self.require_roles(*SALES_ROLES)
         return super().create(request, *args, **kwargs)
+
+    @action(detail=True, methods=["get"])
+    def invoice(self, request, pk=None):
+        sale = self.get_object()
+        pdf_bytes = SaleInvoiceService.render_pdf(sale)
+        return FileResponse(
+            BytesIO(pdf_bytes),
+            as_attachment=True,
+            filename=SaleInvoiceService.filename(sale),
+            content_type="application/pdf",
+        )
 
 
 class PaymentViewSet(StoreViewSetMixin, mixins.CreateModelMixin, mixins.ListModelMixin, mixins.RetrieveModelMixin, viewsets.GenericViewSet):

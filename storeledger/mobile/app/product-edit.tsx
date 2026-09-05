@@ -20,7 +20,7 @@ export default function ProductEditScreen() {
     setBusy(true);
     setError('');
     try {
-      await apiFetch(`/products/${productId}/`, { method: 'PATCH', body: JSON.stringify({ name: data.name, sku: data.sku, category: data.category, unit: data.unit, purchase_price: data.purchase_price, selling_price: data.selling_price, minimum_stock_threshold: data.minimum_stock_threshold, supplier: data.supplier, notes: data.notes }) });
+      await apiFetch(`/products/${productId}/`, { method: 'PATCH', body: JSON.stringify({ name: data.name, sku: data.sku, category: data.category, unit: data.unit, pieces_per_unit: data.pieces_per_unit, purchase_price: data.purchase_price, selling_price: data.selling_price, minimum_stock_threshold: data.minimum_stock_threshold, supplier: data.supplier, notes: data.notes }) });
       router.back();
     } catch (nextError) {
       setError(errorMessage(nextError));
@@ -44,14 +44,15 @@ export default function ProductEditScreen() {
         <Input label="Product Name" icon="cube-outline" value={data.name} onChangeText={value => update('name', value)} />
         <Input label="SKU" icon="barcode-outline" value={data.sku} onChangeText={value => update('sku', value)} />
         <CategoryPicker value={data.category} onChange={value => update('category', value)} />
-        <Input label="Unit" icon="layers-outline" value={data.unit} onChangeText={value => update('unit', value)} />
+        <Input label="Stock Unit / Pack Name" icon="layers-outline" value={data.unit} onChangeText={value => update('unit', value)} />
+        <Input label="Pieces in One Unit" icon="apps-outline" value={String(data.pieces_per_unit)} onChangeText={value => update('pieces_per_unit', Number(value || 0))} keyboardType="number-pad" hint="This changes future sales only; completed invoices keep their original pack size." />
       </Card>
 
       <Card style={styles.formCard}>
         <SectionHeader title="Pricing & alerts" />
         <View style={styles.row}>
-          <View style={styles.flex}><Input label="Purchase Price" icon="arrow-down-outline" value={data.purchase_price} onChangeText={value => update('purchase_price', value)} keyboardType="decimal-pad" /></View>
-          <View style={styles.flex}><Input label="Selling Price" icon="arrow-up-outline" value={data.selling_price} onChangeText={value => update('selling_price', value)} keyboardType="decimal-pad" /></View>
+          <View style={styles.flex}><Input label="Purchase / Piece" icon="arrow-down-outline" value={data.purchase_price} onChangeText={value => update('purchase_price', value)} keyboardType="decimal-pad" /></View>
+          <View style={styles.flex}><Input label="Selling / Piece" icon="arrow-up-outline" value={data.selling_price} onChangeText={value => update('selling_price', value)} keyboardType="decimal-pad" /></View>
         </View>
         <View style={styles.agentPrice}><Text style={styles.agentLabel}>Agent selling price</Text><Money value={data.agent_selling_price} color={colors.success} size="small" /></View>
         <Input label="Low-stock Threshold" icon="warning-outline" value={data.minimum_stock_threshold} onChangeText={value => update('minimum_stock_threshold', value)} keyboardType="decimal-pad" />
@@ -59,7 +60,7 @@ export default function ProductEditScreen() {
         <Input label="Notes" icon="document-text-outline" value={data.notes} onChangeText={value => update('notes', value)} multiline />
       </Card>
 
-      <Button title={busy ? 'Saving…' : 'Save Changes'} icon="checkmark-circle-outline" onPress={save} disabled={busy} />
+      <Button title={busy ? 'Saving…' : 'Save Changes'} icon="checkmark-circle-outline" onPress={save} disabled={busy || data.pieces_per_unit < 1 || !Number.isInteger(data.pieces_per_unit)} />
       <View style={styles.dangerZone}><View style={styles.dangerCopy}><Text style={styles.dangerTitle}>Archive this product</Text><Text style={styles.dangerText}>Historical sales and movements remain available.</Text></View><Button title="Archive" icon="archive-outline" compact variant="danger" onPress={archive} /></View>
     </Screen>
   );

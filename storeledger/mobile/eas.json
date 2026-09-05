@@ -1,6 +1,7 @@
 {
   "cli": {
-    "version": ">= 19.0.0"
+    "version": ">= 19.0.0",
+    "appVersionSource": "remote"
   },
   "build": {
     "development": {
@@ -9,13 +10,18 @@
     },
     "preview": {
       "distribution": "internal",
+      "env": {
+        "EXPO_PUBLIC_API_URL": "https://api.ethiomeda.com/api/v1"
+      },
       "android": {
         "buildType": "apk"
       }
     },
     "production": {
-      "autoIncrement": true
+      "autoIncrement": true,
+      "env": {
+        "EXPO_PUBLIC_API_URL": "https://api.ethiomeda.com/api/v1"
+      }
     }
   }
 }
-

@@ -46,9 +46,25 @@ export async function getAuthHeaders() {
 
 async function parseResponse(response: Response) {
   const text = await response.text();
-  const payload = text ? JSON.parse(text) : null;
+  let payload: unknown = null;
+  if (text) {
+    try {
+      payload = JSON.parse(text);
+    } catch {
+      const contentType = response.headers.get('content-type') || '';
+      payload = contentType.includes('text/html') || text.trimStart().startsWith('<')
+        ? 'The server returned a web page instead of StoreLedger API data. Check the API URL and reverse-proxy routing.'
+        : text;
+    }
+  }
   if (!response.ok) {
-    throw new ApiError(response.status, payload?.error?.details || payload || response.statusText);
+    const errorPayload = payload && typeof payload === 'object'
+      ? (payload as { error?: { details?: unknown } }).error?.details || payload
+      : payload;
+    throw new ApiError(response.status, errorPayload || response.statusText);
+  }
+  if (text && typeof payload === 'string') {
+    throw new ApiError(response.status, payload);
   }
   return payload;
 }
@@ -67,13 +83,17 @@ async function refreshAccessToken() {
   return payload.access as string;
 }
 
+export async function refreshSession() {
+  return Boolean(await refreshAccessToken());
+}
+
 export async function login(username: string, password: string) {
   const response = await fetch(`${API_URL}/auth/token/`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ username, password }),
   });
-  const payload = await parseResponse(response);
+  const payload = await parseResponse(response) as { access: string; refresh: string };
   await saveTokens(payload.access, payload.refresh);
 }
 

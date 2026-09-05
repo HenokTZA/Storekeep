@@ -129,7 +129,7 @@ function SaleCard({ sale, currency, amountMode }: { sale: Sale; currency: string
       <View style={styles.itemList}>
         {sale.items.map(item => (
           <View key={item.id} style={styles.itemRow}>
-            <View style={styles.flex}><Text style={styles.itemName}>{item.product_name}</Text><Text style={styles.meta}>{formatQuantity(item.quantity)} × {Number(item.unit_price).toFixed(2)} {currency}</Text></View>
+            <View style={styles.flex}><Text style={styles.itemName}>{item.product_name}</Text><Text style={styles.meta}>{formatQuantity(item.quantity)} units × {item.pieces_per_unit} pcs × {Number(item.unit_price).toFixed(2)} {currency}</Text><Text style={styles.meta}>{formatQuantity(item.total_pieces)} total pieces</Text></View>
             <Text style={styles.lineTotal}>{Number(item.line_total).toFixed(2)} {currency}</Text>
           </View>
         ))}

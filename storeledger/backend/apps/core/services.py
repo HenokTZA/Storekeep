@@ -14,6 +14,7 @@ from django.db.models.functions import Coalesce
 from django.db.models.functions import TruncDate
 from django.utils import timezone
 from openpyxl import Workbook
+from reportlab.lib import colors as pdf_colors
 from reportlab.lib.pagesizes import A4
 from reportlab.pdfgen import canvas
 from rest_framework.exceptions import ValidationError
@@ -167,9 +168,10 @@ class SaleService:
                 unit_price = money(item.get("unit_price", product.selling_price))
             if unit_price < 0:
                 raise ValidationError({"items": "Unit price cannot be negative."})
-            line_total = money(item_quantity * unit_price)
+            pieces_per_unit = product.pieces_per_unit
+            line_total = money(item_quantity * pieces_per_unit * unit_price)
             total += line_total
-            prepared_items.append((product, item_quantity, unit_price, line_total))
+            prepared_items.append((product, item_quantity, pieces_per_unit, unit_price, line_total))
 
         total = money(total)
         amount_paid = money(amount_paid)
@@ -190,13 +192,14 @@ class SaleService:
             created_by=user,
         )
 
-        for product, item_quantity, unit_price, line_total in prepared_items:
+        for product, item_quantity, pieces_per_unit, unit_price, line_total in prepared_items:
             SaleItem.objects.create(
                 sale=sale,
                 product=product,
                 product_name=product.name,
                 sku=product.sku,
                 quantity=item_quantity,
+                pieces_per_unit=pieces_per_unit,
                 unit_price=unit_price,
                 line_total=line_total,
             )
@@ -255,6 +258,148 @@ class SaleService:
             details={"total": str(total), "amount_paid": str(amount_paid)},
         )
         return sale, True
+
+
+class SaleInvoiceService:
+    """Render an immutable sale snapshot as a customer-facing PDF invoice."""
+
+    @staticmethod
+    def invoice_number(sale: Sale) -> str:
+        local_created = timezone.localtime(sale.created_at, ZoneInfo(sale.store.timezone))
+        return f"SL-{local_created:%Y%m%d}-{str(sale.id)[:8].upper()}"
+
+    @staticmethod
+    def filename(sale: Sale) -> str:
+        return f"StoreLedger-Invoice-{SaleInvoiceService.invoice_number(sale)}.pdf"
+
+    @staticmethod
+    def render_pdf(sale: Sale) -> bytes:
+        sale = (
+            Sale.objects.select_related("store", "customer", "created_by")
+            .prefetch_related("items")
+            .get(pk=sale.pk)
+        )
+        buffer = BytesIO()
+        pdf = canvas.Canvas(buffer, pagesize=A4)
+        page_width, page_height = A4
+        left = 42
+        right = page_width - 42
+        invoice_number = SaleInvoiceService.invoice_number(sale)
+        local_created = timezone.localtime(sale.created_at, ZoneInfo(sale.store.timezone))
+        page_number = 0
+
+        def clean(value, limit=48):
+            text = str(value or "").replace("\n", " ").strip()
+            return text if len(text) <= limit else f"{text[: limit - 1]}…"
+
+        def amount(value):
+            return f"{money(value):,.2f} {sale.store.currency}"
+
+        def page_header():
+            nonlocal page_number
+            page_number += 1
+            pdf.setFillColor(pdf_colors.HexColor("#176B54"))
+            pdf.rect(0, page_height - 108, page_width, 108, fill=1, stroke=0)
+            pdf.setFillColor(pdf_colors.white)
+            pdf.setFont("Helvetica-Bold", 22)
+            pdf.drawString(left, page_height - 48, "INVOICE")
+            pdf.setFont("Helvetica-Bold", 13)
+            pdf.drawRightString(right, page_height - 45, clean(sale.store.name, 40))
+            pdf.setFont("Helvetica", 8.5)
+            if sale.store.phone:
+                pdf.drawRightString(right, page_height - 61, clean(sale.store.phone, 44))
+            if sale.store.address:
+                pdf.drawRightString(right, page_height - 76, clean(sale.store.address, 52))
+            pdf.setFillColor(pdf_colors.HexColor("#16251F"))
+            pdf.setFont("Helvetica-Bold", 9)
+            pdf.drawString(left, page_height - 132, f"Invoice: {invoice_number}")
+            pdf.setFont("Helvetica", 9)
+            pdf.drawString(left, page_height - 148, f"Date: {local_created:%Y-%m-%d %H:%M}")
+            pdf.drawRightString(right, page_height - 132, f"Status: {sale.status.upper()}")
+            pdf.drawRightString(right, page_height - 148, f"Cashier: {clean(sale.created_by.get_username(), 25)}")
+
+        def table_header(y):
+            pdf.setFillColor(pdf_colors.HexColor("#E7F3EE"))
+            pdf.roundRect(left, y - 17, right - left, 24, 4, fill=1, stroke=0)
+            pdf.setFillColor(pdf_colors.HexColor("#176B54"))
+            pdf.setFont("Helvetica-Bold", 7.5)
+            pdf.drawString(left + 5, y - 8, "PRODUCT")
+            pdf.drawRightString(308, y - 8, "UNITS")
+            pdf.drawRightString(365, y - 8, "PCS/UNIT")
+            pdf.drawRightString(423, y - 8, "PIECES")
+            pdf.drawRightString(490, y - 8, "PRICE/PC")
+            pdf.drawRightString(right - 5, y - 8, "AMOUNT")
+            return y - 28
+
+        page_header()
+        y = page_height - 178
+        pdf.setFont("Helvetica-Bold", 10)
+        pdf.drawString(left, y, "Bill to")
+        pdf.setFont("Helvetica", 9)
+        customer_name = sale.customer.name if sale.customer else "Walk-in customer"
+        pdf.drawString(left, y - 16, clean(customer_name, 58))
+        if sale.customer and sale.customer.phone:
+            pdf.drawString(left, y - 31, clean(sale.customer.phone, 40))
+        y -= 58
+        y = table_header(y)
+
+        for item in sale.items.all():
+            if y < 155:
+                pdf.setFont("Helvetica", 7)
+                pdf.setFillColor(pdf_colors.HexColor("#63736D"))
+                pdf.drawCentredString(page_width / 2, 24, f"{invoice_number} · Page {page_number}")
+                pdf.showPage()
+                page_header()
+                y = table_header(page_height - 178)
+            total_pieces = item.quantity * item.pieces_per_unit
+            pdf.setFillColor(pdf_colors.HexColor("#16251F"))
+            pdf.setFont("Helvetica-Bold", 8.5)
+            pdf.drawString(left + 5, y, clean(item.product_name, 34))
+            pdf.setFont("Helvetica", 7.5)
+            pdf.drawString(left + 5, y - 12, clean(item.sku, 28))
+            pdf.drawRightString(308, y - 2, f"{item.quantity:g}")
+            pdf.drawRightString(365, y - 2, str(item.pieces_per_unit))
+            pdf.drawRightString(423, y - 2, f"{total_pieces:g}")
+            pdf.drawRightString(490, y - 2, f"{money(item.unit_price):,.2f}")
+            pdf.setFont("Helvetica-Bold", 8)
+            pdf.drawRightString(right - 5, y - 2, f"{money(item.line_total):,.2f}")
+            pdf.setStrokeColor(pdf_colors.HexColor("#D7E1DD"))
+            pdf.line(left, y - 20, right, y - 20)
+            y -= 34
+
+        if y < 154:
+            pdf.setFont("Helvetica", 7)
+            pdf.setFillColor(pdf_colors.HexColor("#63736D"))
+            pdf.drawCentredString(page_width / 2, 24, f"{invoice_number} · Page {page_number}")
+            pdf.showPage()
+            page_header()
+            pdf.setFillColor(pdf_colors.HexColor("#16251F"))
+            pdf.setFont("Helvetica-Bold", 12)
+            pdf.drawString(left, page_height - 178, "Invoice totals")
+            y = page_height - 198
+
+        summary_top = y - 8
+        pdf.setFillColor(pdf_colors.HexColor("#F4F8F6"))
+        pdf.roundRect(326, summary_top - 92, right - 326, 92, 7, fill=1, stroke=0)
+        pdf.setFillColor(pdf_colors.HexColor("#4F625B"))
+        pdf.setFont("Helvetica", 9)
+        pdf.drawString(340, summary_top - 20, "Subtotal")
+        pdf.drawString(340, summary_top - 41, "Amount paid")
+        pdf.drawString(340, summary_top - 62, "Outstanding")
+        pdf.setFillColor(pdf_colors.HexColor("#16251F"))
+        pdf.drawRightString(right - 12, summary_top - 20, amount(sale.subtotal))
+        pdf.drawRightString(right - 12, summary_top - 41, amount(sale.amount_paid))
+        pdf.setFont("Helvetica-Bold", 10)
+        pdf.drawRightString(right - 12, summary_top - 62, amount(sale.outstanding))
+        pdf.setFont("Helvetica", 7.5)
+        pdf.setFillColor(pdf_colors.HexColor("#63736D"))
+        pdf.drawString(left, summary_top - 20, "Quantity is shown in sale units/packs.")
+        pdf.drawString(left, summary_top - 34, "Piece price × pieces per unit × units = line amount.")
+        if sale.note:
+            pdf.drawString(left, summary_top - 55, f"Note: {clean(sale.note, 62)}")
+        pdf.drawCentredString(page_width / 2, 24, f"{invoice_number} · Page {page_number}")
+        pdf.save()
+        return buffer.getvalue()
 
 
 class PaymentService:
@@ -425,9 +570,10 @@ class PurchaseService:
                 raise ValidationError({"items": "Every quantity must be greater than zero."})
             if unit_cost < 0:
                 raise ValidationError({"items": "Unit cost cannot be negative."})
-            line_total = money(item_quantity * unit_cost)
+            pieces_per_unit = product.pieces_per_unit
+            line_total = money(item_quantity * pieces_per_unit * unit_cost)
             total += line_total
-            prepared_items.append((product, item_quantity, unit_cost, line_total))
+            prepared_items.append((product, item_quantity, pieces_per_unit, unit_cost, line_total))
 
         total = money(total)
         amount_paid = money(amount_paid)
@@ -447,13 +593,14 @@ class PurchaseService:
             created_by=user,
         )
 
-        for product, item_quantity, unit_cost, line_total in prepared_items:
+        for product, item_quantity, pieces_per_unit, unit_cost, line_total in prepared_items:
             PurchaseItem.objects.create(
                 purchase=purchase,
                 product=product,
                 product_name=product.name,
                 sku=product.sku,
                 quantity=item_quantity,
+                pieces_per_unit=pieces_per_unit,
                 unit_cost=unit_cost,
                 line_total=line_total,
             )

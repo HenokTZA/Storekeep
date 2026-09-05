@@ -27,9 +27,12 @@ export type Product = {
   category: number | null;
   category_name: string | null;
   unit: string;
+  pieces_per_unit: number;
   purchase_price: string;
   selling_price: string;
   agent_selling_price: string;
+  pack_selling_price: string;
+  agent_pack_selling_price: string;
   minimum_stock_threshold: string;
   current_quantity: string;
   is_low_stock: boolean;
@@ -61,7 +64,10 @@ export type SaleItem = {
   product_name: string;
   sku: string;
   quantity: string;
+  pieces_per_unit: number;
+  total_pieces: string;
   unit_price: string;
+  pack_price: string;
   line_total: string;
 };
 
@@ -110,6 +116,9 @@ export type Transaction = {
   credit_debit: 'credit' | 'debit';
   delta: string;
   running_balance: string;
+  sale: string | null;
+  payment: string | null;
+  purchase: string | null;
   note: string;
 };
 
@@ -180,7 +189,18 @@ export type ExpenseSummary = {
   current_month: { year: number; month: number; spent: string; budget: string; remaining: string; percentage: string };
 };
 
-export type PurchaseItem = { id: number; product: number; product_name: string; sku: string; quantity: string; unit_cost: string; line_total: string };
+export type PurchaseItem = {
+  id: number;
+  product: number;
+  product_name: string;
+  sku: string;
+  quantity: string;
+  pieces_per_unit: number;
+  total_pieces: string;
+  unit_cost: string;
+  pack_cost: string;
+  line_total: string;
+};
 
 export type Purchase = {
   id: string;

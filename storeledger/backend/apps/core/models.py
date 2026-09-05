@@ -95,6 +95,11 @@ class Product(TimeStampedModel):
     name = models.CharField(max_length=180)
     sku = models.CharField(max_length=80)
     unit = models.CharField(max_length=40, default="unit")
+    pieces_per_unit = models.PositiveIntegerField(
+        default=1,
+        validators=[MinValueValidator(1)],
+        help_text="Number of individual pieces contained in one sellable stock unit or pack.",
+    )
     purchase_price = models.DecimalField(max_digits=MONEY_MAX_DIGITS, decimal_places=MONEY_DECIMAL_PLACES, default=0)
     selling_price = models.DecimalField(max_digits=MONEY_MAX_DIGITS, decimal_places=MONEY_DECIMAL_PLACES, validators=[MinValueValidator(0)])
     minimum_stock_threshold = models.DecimalField(
@@ -225,6 +230,7 @@ class SaleItem(models.Model):
     product_name = models.CharField(max_length=180)
     sku = models.CharField(max_length=80)
     quantity = models.DecimalField(max_digits=QUANTITY_MAX_DIGITS, decimal_places=QUANTITY_DECIMAL_PLACES, validators=[MinValueValidator(Decimal("0.001"))])
+    pieces_per_unit = models.PositiveIntegerField(default=1, validators=[MinValueValidator(1)])
     unit_price = models.DecimalField(max_digits=MONEY_MAX_DIGITS, decimal_places=MONEY_DECIMAL_PLACES, validators=[MinValueValidator(0)])
     line_total = models.DecimalField(max_digits=MONEY_MAX_DIGITS, decimal_places=MONEY_DECIMAL_PLACES)
 
@@ -394,6 +400,7 @@ class PurchaseItem(models.Model):
         decimal_places=QUANTITY_DECIMAL_PLACES,
         validators=[MinValueValidator(Decimal("0.001"))],
     )
+    pieces_per_unit = models.PositiveIntegerField(default=1, validators=[MinValueValidator(1)])
     unit_cost = models.DecimalField(
         max_digits=MONEY_MAX_DIGITS,
         decimal_places=MONEY_DECIMAL_PLACES,

@@ -6,13 +6,13 @@ This matrix maps the supplied SRS to the delivered implementation and an accepta
 |---|---|---|
 | Navigation and responsive UX | Expo Router tabs plus More menu; centered responsive Android/web layout; device-aware top and bottom safe areas | Desktop and Android checklist plus UI audit |
 | Dashboard | Seven clickable summaries with exact sale/collection/balance/expense/transaction drill-downs, quick actions, alerts and recent ledger entries | Dashboard drill-down checklist and tenant-isolated API test |
-| Stock | Product/category CRUD, receive/adjust/archive, indexed search, immutable movement history | Stock checklist and service tests |
+| Stock | Product/category CRUD, pieces-per-unit distributor packs, receive/adjust/archive, indexed search, immutable movement history | Stock checklist and service tests |
 | Traders | Filtered customer type, profile, search, sale, payment, credit/loan, archive and history | Trader checklist |
 | Agents | Same ledger rules and functions as Traders, with separate type/filter and server-enforced 1.5% price reduction | Agent pricing API/service tests and checklist |
 | Balance rules | Append-only signed ledger; red positive `Owes Me`, green negative `I Owe`, neutral zero | Partial/overpayment tests |
-| Sales | Walk-in/Trader/Agent, automatic totals, partial payment, atomic stock and ledger posting, idempotency | Sale API/service tests |
+| Sales | Walk-in/Trader/Agent, three-item searchable product pages, pack-unit totals, invoice preview/PDF sharing, partial payment, atomic stock and ledger posting, idempotency | Sale API/service/invoice tests |
 | Payments | Customer, amount, date, method and note; atomic balance update and idempotency | Payment tests |
-| Supplier purchasing | Multi-line purchase receipt; atomic stock receipt, supplier payable and optional payment sent; only cash paid now contributes to cash-out cards | Purchase service/API and dashboard formula tests |
+| Supplier purchasing | Multi-line pack-unit purchase receipt with per-piece cost; atomic stock receipt, supplier payable and optional payment sent; only cash paid now contributes to cash-out cards | Purchase service/API and dashboard formula tests |
 | Expenses and budgets | Categories, dated expenses, payment methods, references, immutable reversal, monthly budget and cash-out-aware dashboard totals | Expense/payment API tests and mobile checklist |
 | Outgoing payments | Explicit payment-sent direction reduces only an existing `I Owe` balance, prevents overpayment and contributes its paid amount to expense cards | Payment-sent service/dashboard tests |
 | Debt aging | Configurable store threshold with exact current positive-balance age and chart/list | Overdue mobile/API acceptance |

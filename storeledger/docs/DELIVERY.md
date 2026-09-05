@@ -3,12 +3,14 @@
 ## Validation completed
 
 - Django system checks passed.
-- Twenty-two backend tests passed.
-- Tests cover tenant isolation, enforced Agent pricing, atomic/idempotent sales and purchases, purchase-paid-now/outgoing-payment cash-out formulas, dashboard transaction consistency, inventory rollback, partial and outgoing payments, customer credit, immutable expense reversal, budgets, unified search, exports, low-stock deduplication, SMS eligibility, report calculations, PDF/Excel generation and store settings.
+- Twenty-six backend tests passed.
+- Tests cover tenant isolation, distributor pack calculations and historical snapshots, three-item product search/pagination, authenticated invoice PDFs, enforced Agent pricing, atomic/idempotent sales and purchases, purchase-paid-now/outgoing-payment cash-out formulas, dashboard transaction consistency, inventory rollback, partial and outgoing payments, customer credit, immutable expense reversal, budgets, unified search, exports, low-stock deduplication, SMS eligibility, report calculations, PDF/Excel generation and store settings.
 - Django migrations are current.
-- TypeScript strict type-check passed after the Finance Trade Ledger feature merge.
+- TypeScript strict type-check passed for the complete v1.6.0 pack, search, preview, invoice and navigation workflows.
 - The package lock uses the Expo 57-compatible dependency set and a clean `npm ci` completed.
 - Expo Doctor passed all 21 checks and Expo produced a complete Android JavaScript/Hermes bundle.
+- The authenticated deployment smoke test passed health, identity, dashboard cards/details, products, parties, three-item pack metadata and sale invoice PDF endpoints.
+- TypeScript validates the invoice preview, Android document download and native invoice sharing paths.
 - The UI regression audit checks all 32 routes, disallows Android host-theme colors and verifies 11 important text/background contrast pairs.
 - Dashboard API tests verify the exact sales, collection, receivable, payable, expense and transaction records behind all seven dashboard cards.
 - Today's Transactions now has one tested definition across its card and drill-down: completed sales, standalone received/sent payments, purchase-linked payments and active expenses recorded today.

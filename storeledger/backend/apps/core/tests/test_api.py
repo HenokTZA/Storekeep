@@ -35,6 +35,23 @@ class TenantIsolationApiTests(APITestCase):
         self.assertEqual(response.data["count"], 1)
         self.assertEqual(response.data["results"][0]["name"], "Mine")
         self.assertEqual(response.data["results"][0]["agent_selling_price"], "9.85")
+        self.assertEqual(response.data["results"][0]["pieces_per_unit"], 1)
+        self.assertEqual(response.data["results"][0]["pack_selling_price"], "10.00")
+
+    def test_sale_product_picker_supports_search_and_three_item_pages(self):
+        for index in range(4):
+            Product.objects.create(
+                store=self.store,
+                name=f"Searchable Product {index}",
+                sku=f"SEARCH-{index}",
+                selling_price="20.00",
+            )
+        first = self.client.get("/api/v1/products/?page_size=3&page=1&common=1&search=Searchable")
+        second = self.client.get("/api/v1/products/?page_size=3&page=2&common=1&search=Searchable")
+        self.assertEqual(first.status_code, 200, first.data)
+        self.assertEqual(first.data["count"], 4)
+        self.assertEqual(len(first.data["results"]), 3)
+        self.assertEqual(len(second.data["results"]), 1)
 
     def test_agent_sale_price_is_enforced_by_the_api(self):
         import uuid
@@ -82,6 +99,32 @@ class TenantIsolationApiTests(APITestCase):
         self.assertEqual(InventoryBalance.objects.get(product=self.product).quantity, Decimal("4.000"))
         self.party.refresh_from_db()
         self.assertEqual(self.party.current_balance, Decimal("5.00"))
+        invoice = self.client.get(f"/api/v1/sales/{first.data['id']}/invoice/")
+        self.assertEqual(invoice.status_code, 200)
+        self.assertEqual(invoice["Content-Type"], "application/pdf")
+        self.assertTrue(b"".join(invoice.streaming_content).startswith(b"%PDF"))
+
+    def test_pack_pricing_is_exposed_and_enforced_by_sale_api(self):
+        import uuid
+
+        self.product.selling_price = Decimal("200.00")
+        self.product.pieces_per_unit = 54
+        self.product.save(update_fields=["selling_price", "pieces_per_unit", "updated_at"])
+        response = self.client.post(
+            "/api/v1/sales/",
+            {
+                "customer_id": self.party.id,
+                "idempotency_key": str(uuid.uuid4()),
+                "amount_paid": "10800.00",
+                "sale_items": [{"product_id": self.product.id, "quantity": "1.000"}],
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, 201, response.data)
+        self.assertEqual(response.data["total"], "10800.00")
+        self.assertEqual(response.data["items"][0]["pieces_per_unit"], 54)
+        self.assertEqual(response.data["items"][0]["total_pieces"], "54.000")
+        self.assertEqual(response.data["items"][0]["pack_price"], "10800.00")
 
     def test_store_settings_can_update_store_profile(self):
         response = self.client.patch(

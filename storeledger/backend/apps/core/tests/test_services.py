@@ -101,6 +101,24 @@ class StoreServiceTests(TestCase):
         self.assertEqual(sale.items.get().unit_price, Decimal("49.25"))
         self.assertEqual(sale.total, Decimal("98.50"))
 
+    def test_pack_sale_uses_units_times_pieces_times_piece_price(self):
+        self.product.selling_price = Decimal("200.00")
+        self.product.pieces_per_unit = 54
+        self.product.save(update_fields=["selling_price", "pieces_per_unit", "updated_at"])
+        sale, _ = self.create_sale(quantity="1", paid="10800")
+        item = sale.items.get()
+        self.assertEqual(sale.total, Decimal("10800.00"))
+        self.assertEqual(item.quantity, Decimal("1.000"))
+        self.assertEqual(item.pieces_per_unit, 54)
+        self.assertEqual(item.unit_price, Decimal("200.00"))
+        self.assertEqual(item.line_total, Decimal("10800.00"))
+        self.assertEqual(InventoryBalance.objects.get(product=self.product).quantity, Decimal("9.000"))
+
+        self.product.pieces_per_unit = 60
+        self.product.save(update_fields=["pieces_per_unit", "updated_at"])
+        item.refresh_from_db()
+        self.assertEqual(item.pieces_per_unit, 54, "Completed sales must keep their original pack snapshot.")
+
     def test_negative_inventory_is_rejected_and_sale_rolls_back(self):
         with self.assertRaises(ValidationError):
             self.create_sale(quantity="50")
@@ -184,6 +202,24 @@ class StoreServiceTests(TestCase):
         self.assertEqual(InventoryBalance.objects.get(product=self.product).quantity, Decimal("12.000"))
         self.party.refresh_from_db()
         self.assertEqual(self.party.current_balance, Decimal("-20.00"))
+
+    def test_pack_purchase_uses_piece_cost_and_receives_pack_units(self):
+        self.product.pieces_per_unit = 50
+        self.product.save(update_fields=["pieces_per_unit", "updated_at"])
+        purchase, _ = PurchaseService.create(
+            store=self.store,
+            user=self.user,
+            supplier_id=self.party.id,
+            amount_paid="3000",
+            items=[{"product_id": self.product.id, "quantity": "2", "unit_cost": "30"}],
+            purchase_date=date.today(),
+            idempotency_key=uuid.uuid4(),
+        )
+        item = purchase.items.get()
+        self.assertEqual(purchase.total, Decimal("3000.00"))
+        self.assertEqual(item.pieces_per_unit, 50)
+        self.assertEqual(item.line_total, Decimal("3000.00"))
+        self.assertEqual(InventoryBalance.objects.get(product=self.product).quantity, Decimal("12.000"))
 
     def test_expense_is_snapshot_based_and_reversible_without_deletion(self):
         category = ExpenseCategory.objects.create(store=self.store, name="Transport")

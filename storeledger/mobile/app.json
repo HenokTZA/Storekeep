@@ -2,7 +2,8 @@
   "expo": {
     "name": "StoreLedger",
     "slug": "storeledger",
-    "version": "1.4.0",
+    "owner": "henoktza",
+    "version": "1.6.0",
     "orientation": "portrait",
     "scheme": "storeledger",
     "userInterfaceStyle": "light",
@@ -21,6 +22,11 @@
     },
     "experiments": {
       "typedRoutes": true
+    },
+    "extra": {
+      "eas": {
+        "projectId": "8eb196bc-a7c6-4b7f-98d3-9a06ee58d53a"
+      }
     }
   }
 }

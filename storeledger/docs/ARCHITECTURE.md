@@ -18,6 +18,8 @@ Financial and inventory operations are posted in database transactions. A sale c
 
 Agent pricing is a backend business rule rather than a display-only discount. Django calculates every Agent sale item at 98.5% of the product's saved selling price, rounded to the store's two-decimal money precision. This keeps Android, web and direct API clients consistent and prevents client-supplied prices from bypassing the rule.
 
+Distributor inventory is tracked in whole sale units/packs. `Product.pieces_per_unit` describes the current pack, while each `SaleItem` and `PurchaseItem` stores its own pack-size snapshot. Monetary lines use units × pieces per unit × per-piece price/cost. Inventory movements use only units, so changing a product's future pack configuration cannot rewrite old invoices or stock movements.
+
 ## Source-of-truth records
 
 - `StockMovement` is the inventory audit source. `InventoryBalance` is the fast current projection.
@@ -25,6 +27,7 @@ Agent pricing is a backend business rule rather than a display-only discount. Dj
 - Posted history is not exposed through update or delete APIs. Corrections should be implemented as reversal entries.
 - `Expense` retains posted details and supports audited reversal instead of delete.
 - `Sale.idempotency_key`, `Payment.idempotency_key` and `Purchase.idempotency_key` prevent network retries from posting duplicates.
+- Sale invoices are rendered on demand from immutable sale/item snapshots and are available only through the authenticated, store-scoped sale endpoint.
 - `MonthlyBudget` is a projection target. Dashboard budget usage is the sum of active non-reversed `Expense` records and actual outgoing `Payment` amounts; unpaid purchase value is a payable, not an expense.
 
 ## Search and data portability
