@@ -3,18 +3,20 @@
 ## Validation completed
 
 - Django system checks passed.
-- Twenty-six backend tests passed.
-- Tests cover tenant isolation, distributor pack calculations and historical snapshots, three-item product search/pagination, authenticated invoice PDFs, enforced Agent pricing, atomic/idempotent sales and purchases, purchase-paid-now/outgoing-payment cash-out formulas, dashboard transaction consistency, inventory rollback, partial and outgoing payments, customer credit, immutable expense reversal, budgets, unified search, exports, low-stock deduplication, SMS eligibility, report calculations, PDF/Excel generation and store settings.
+- Thirty-one backend tests passed.
+- Tests cover tenant isolation, Factory creation/filtering, duplicate Product names across Factories, distributor pack calculations and historical snapshots, three-item product search/pagination, authenticated sale and purchase PNG receipts, walk-in Sale transaction history, walk-in negotiated price snapshots, historical total-outstanding calculations, backwards-compatible sale PDFs, Agent defaults and negotiated price overrides, atomic/idempotent sales and Factory purchases, purchase-paid-now/outgoing-payment cash-out formulas, dashboard transaction consistency, inventory rollback, partial and outgoing payments, customer credit, immutable expense reversal, budgets, unified search, exports, low-stock deduplication, SMS eligibility, report calculations, PDF/Excel generation and store settings.
 - Django migrations are current.
-- TypeScript strict type-check passed for the complete v1.6.0 pack, search, preview, invoice and navigation workflows.
+- TypeScript strict type-check passed for the complete v2.0.0 Factory, pack, all-customer negotiated-price, direct-quantity validation, bilingual UI and image-receipt workflows.
 - The package lock uses the Expo 57-compatible dependency set and a clean `npm ci` completed.
 - Expo Doctor passed all 21 checks and Expo produced a complete Android JavaScript/Hermes bundle.
-- The authenticated deployment smoke test passed health, identity, dashboard cards/details, products, parties, three-item pack metadata and sale invoice PDF endpoints.
-- TypeScript validates the invoice preview, Android document download and native invoice sharing paths.
-- The UI regression audit checks all 32 routes, disallows Android host-theme colors and verifies 11 important text/background contrast pairs.
+- The authenticated test suite passed health, identity, dashboard cards/details, products, parties, three-item pack metadata and authenticated sale/purchase receipt endpoints.
+- TypeScript validates the outstanding-aware invoice preview, walk-in price editor, inline quantity-limit feedback, in-app image view, Android image download and native image sharing paths.
+- The UI regression audit checks all 33 routes, disallows Android host-theme colors and verifies 11 important text/background contrast pairs.
+- The localization audit checks all 38 UI files, more than 750 Amharic catalog entries, persisted Amharic/English selection, localized navigation and bilingual PNG receipt wiring.
+- Amharic and English sale/purchase receipt tests pass, including language metadata and reliable Ethiopic glyph rendering from the bundled font.
 - Dashboard API tests verify the exact sales, collection, receivable, payable, expense and transaction records behind all seven dashboard cards.
 - Today's Transactions now has one tested definition across its card and drill-down: completed sales, standalone received/sent payments, purchase-linked payments and active expenses recorded today.
-- Agent price enforcement is tested at both the service and REST API boundaries, including rejection of a client-supplied override through server recalculation.
+- Agent default pricing and per-sale negotiated overrides are tested at both the service and REST API boundaries; the saved Product price remains unchanged.
 - The responsive web implementation includes browser-safe token/cache storage; run it with `npx expo start --web` after installing dependencies.
 - JSON, shell script and Compose YAML syntax were parsed successfully.
 

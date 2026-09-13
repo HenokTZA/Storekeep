@@ -84,7 +84,7 @@ Inside `mobile/.env`:
 EXPO_PUBLIC_API_URL=https://api.yourdomain.com/api/v1
 ```
 
-This v1.6.0 delivery is already linked to the existing `@henoktza/storeledger` EAS project, and its preview/production profiles target `https://api.ethiomeda.com/api/v1`. Change those `eas.json` values only if the production API hostname changes.
+This v2.0.0 delivery is already linked to the existing `@henoktza/storeledger` EAS project, and its preview/production profiles target `https://api.ethiomeda.com/api/v1`. Change those `eas.json` values only if the production API hostname changes.
 
 Then produce an internal APK:
 

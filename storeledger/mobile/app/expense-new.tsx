@@ -1,5 +1,6 @@
 import React, { useCallback, useState } from 'react';
-import { Alert, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, View } from 'react-native';
+import { localizedAlert, Text } from '@/i18n';
 import { router, useFocusEffect } from 'expo-router';
 import { Button, Card, Icon, Input, Loading, Message, Screen, SectionHeader, Title } from '@/components/ui';
 import { apiFetch, errorMessage } from '@/lib/api';
@@ -60,7 +61,7 @@ export default function ExpenseNewScreen() {
     setError('');
     try {
       await apiFetch('/expenses/', { method: 'POST', body: JSON.stringify({ category, amount, expense_date: expenseDate, payment_method: paymentMethod, description, reference, notes }) });
-      Alert.alert('Expense recorded', 'The expense dashboard and reports are updated.');
+      localizedAlert('Expense recorded', 'The expense dashboard and reports are updated.');
       router.back();
     } catch (nextError) {
       setError(errorMessage(nextError));

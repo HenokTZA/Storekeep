@@ -33,10 +33,16 @@ class StoreServiceTests(TestCase):
         self.store = Store.objects.create(name="Test Store", account_number="123", currency="ETB")
         Membership.objects.create(user=self.user, store=self.store, role=Membership.Role.OWNER)
         self.store_settings = StoreSettings.objects.create(store=self.store)
+        self.factory = Party.objects.create(
+            store=self.store,
+            party_type=Party.PartyType.FACTORY,
+            name="FF",
+            phone="",
+        )
         self.product = Product.objects.create(
             store=self.store,
+            factory=self.factory,
             name="LED Driver",
-            sku="LED-1",
             selling_price=Decimal("50.00"),
             minimum_stock_threshold=Decimal("5.000"),
         )
@@ -83,23 +89,62 @@ class StoreServiceTests(TestCase):
         self.assertEqual(first.id, second.id)
         self.assertEqual(InventoryBalance.objects.get(product=self.product).quantity, Decimal("8.000"))
 
-    def test_agent_sale_always_uses_one_and_a_half_percent_discount(self):
+    def test_agent_sale_defaults_to_discount_and_allows_negotiated_override(self):
+        self.product.purchase_price = Decimal("20.00")
+        self.product.save(update_fields=["purchase_price", "updated_at"])
         agent = Party.objects.create(
             store=self.store,
             party_type=Party.PartyType.AGENT,
             name="Agent Customer",
             phone="+251911000001",
         )
-        sale, _ = SaleService.create(
+        default_sale, _ = SaleService.create(
             store=self.store,
             user=self.user,
             customer_id=agent.id,
             amount_paid="98.50",
-            items=[{"product_id": self.product.id, "quantity": "2", "unit_price": "999.00"}],
+            items=[{"product_id": self.product.id, "quantity": "2"}],
             idempotency_key=uuid.uuid4(),
         )
-        self.assertEqual(sale.items.get().unit_price, Decimal("49.25"))
-        self.assertEqual(sale.total, Decimal("98.50"))
+        self.assertEqual(default_sale.items.get().unit_price, Decimal("49.25"))
+        self.assertEqual(default_sale.total, Decimal("98.50"))
+        self.assertEqual(default_sale.items.get().line_cost, Decimal("40.00"))
+        self.assertEqual(default_sale.items.get().gross_profit, Decimal("58.50"))
+        negotiated_sale, _ = SaleService.create(
+            store=self.store,
+            user=self.user,
+            customer_id=agent.id,
+            amount_paid="90.00",
+            items=[{"product_id": self.product.id, "quantity": "2", "unit_price": "45.00"}],
+            idempotency_key=uuid.uuid4(),
+        )
+        self.assertEqual(negotiated_sale.items.get().unit_price, Decimal("45.00"))
+        self.assertEqual(negotiated_sale.total, Decimal("90.00"))
+        self.assertEqual(negotiated_sale.items.get().line_cost, Decimal("40.00"))
+        self.assertEqual(negotiated_sale.items.get().gross_profit, Decimal("50.00"))
+        self.product.refresh_from_db()
+        self.assertEqual(self.product.selling_price, Decimal("50.00"))
+
+    def test_walk_in_sale_allows_one_transaction_price_override(self):
+        self.product.purchase_price = Decimal("20.00")
+        self.product.save(update_fields=["purchase_price", "updated_at"])
+        sale, created = SaleService.create(
+            store=self.store,
+            user=self.user,
+            customer_id=None,
+            amount_paid="90.00",
+            items=[{"product_id": self.product.id, "quantity": "2", "unit_price": "45.00"}],
+            idempotency_key=uuid.uuid4(),
+        )
+        self.assertTrue(created)
+        self.assertIsNone(sale.customer)
+        self.assertEqual(sale.total, Decimal("90.00"))
+        self.assertEqual(sale.outstanding, Decimal("0.00"))
+        self.assertEqual(sale.items.get().unit_price, Decimal("45.00"))
+        self.assertEqual(sale.items.get().gross_profit, Decimal("50.00"))
+        self.product.refresh_from_db()
+        self.assertEqual(self.product.selling_price, Decimal("50.00"))
+        self.assertFalse(FinancialTransaction.objects.filter(sale=sale).exists())
 
     def test_pack_sale_uses_units_times_pieces_times_piece_price(self):
         self.product.selling_price = Decimal("200.00")
@@ -180,7 +225,7 @@ class StoreServiceTests(TestCase):
         purchase, created = PurchaseService.create(
             store=self.store,
             user=self.user,
-            supplier_id=self.party.id,
+            supplier_id=self.factory.id,
             amount_paid="40",
             items=[{"product_id": self.product.id, "quantity": "2", "unit_cost": "30"}],
             purchase_date=date.today(),
@@ -189,7 +234,7 @@ class StoreServiceTests(TestCase):
         duplicate, duplicate_created = PurchaseService.create(
             store=self.store,
             user=self.user,
-            supplier_id=self.party.id,
+            supplier_id=self.factory.id,
             amount_paid="40",
             items=[{"product_id": self.product.id, "quantity": "2", "unit_cost": "30"}],
             purchase_date=date.today(),
@@ -200,8 +245,8 @@ class StoreServiceTests(TestCase):
         self.assertEqual(purchase.id, duplicate.id)
         self.assertEqual(Purchase.objects.count(), 1)
         self.assertEqual(InventoryBalance.objects.get(product=self.product).quantity, Decimal("12.000"))
-        self.party.refresh_from_db()
-        self.assertEqual(self.party.current_balance, Decimal("-20.00"))
+        self.factory.refresh_from_db()
+        self.assertEqual(self.factory.current_balance, Decimal("-20.00"))
 
     def test_pack_purchase_uses_piece_cost_and_receives_pack_units(self):
         self.product.pieces_per_unit = 50
@@ -209,7 +254,7 @@ class StoreServiceTests(TestCase):
         purchase, _ = PurchaseService.create(
             store=self.store,
             user=self.user,
-            supplier_id=self.party.id,
+            supplier_id=self.factory.id,
             amount_paid="3000",
             items=[{"product_id": self.product.id, "quantity": "2", "unit_cost": "30"}],
             purchase_date=date.today(),
@@ -266,7 +311,12 @@ class StoreServiceTests(TestCase):
 
     def test_report_uses_recorded_transactions(self):
         self.create_sale()
-        unused = Product.objects.create(store=self.store, name="Unsold Product", sku="ZERO-1", selling_price=Decimal("20.00"))
+        unused = Product.objects.create(
+            store=self.store,
+            factory=self.factory,
+            name="Unsold Product",
+            selling_price=Decimal("20.00"),
+        )
         InventoryBalance.objects.create(product=unused, quantity=Decimal("7.000"))
         summary = ReportService.calculate(self.store, date.today(), date.today())
         self.assertEqual(summary["sales"]["total_sales"], "100.00")
@@ -296,7 +346,13 @@ class StoreServiceTests(TestCase):
             self.assertTrue(report.excel_file.name.endswith(".xlsx"))
             self.assertGreater(report.pdf_file.size, 500)
             self.assertGreater(report.excel_file.size, 500)
-            workbook = load_workbook(BytesIO(report.excel_file.read()), read_only=True)
-            self.assertTrue(
-                {"Summary", "Daily Sales", "Products Sold", "Stock Received", "Low Stock", "Current Inventory", "Low Stock Events", "Customer Summary", "Top Customers", "Customer Transactions"}.issubset(workbook.sheetnames)
-            )
+            with report.excel_file.open("rb") as excel_file:
+                workbook = load_workbook(BytesIO(excel_file.read()), read_only=True)
+            try:
+                self.assertTrue(
+                    {"Summary", "Daily Sales", "Products Sold", "Stock Received", "Low Stock", "Current Inventory", "Low Stock Events", "Customer Summary", "Top Customers", "Customer Transactions"}.issubset(workbook.sheetnames)
+                )
+            finally:
+                workbook.close()
+                report.excel_file.close()
+                report.pdf_file.close()

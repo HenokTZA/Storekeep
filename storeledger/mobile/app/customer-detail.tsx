@@ -1,5 +1,6 @@
 import React, { useCallback, useState } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, View } from 'react-native';
+import { Text } from '@/i18n';
 import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { Badge, Button, Card, Icon, Loading, Message, Money, Screen, SectionHeader, Title } from '@/components/ui';
 import { apiFetch, errorMessage } from '@/lib/api';
@@ -28,9 +29,11 @@ export default function CustomerDetailScreen() {
 
   const balanceColor = party.balance_color === 'red' ? colors.danger : party.balance_color === 'green' ? colors.success : colors.neutral;
   const paymentSent = Number(party.current_balance) < 0;
+  const isFactory = party.party_type === 'factory';
+  const label = isFactory ? 'Factory' : party.party_type === 'agent' ? 'Agent' : 'Trader';
   return (
     <Screen>
-      <Title eyebrow="Customer profile" subtitle="Contact, balance and permanent transaction history">{party.name}</Title>
+      <Title eyebrow={`${label} profile`} subtitle="Contact, balance and permanent transaction history">{party.name}</Title>
       {error ? <Message text={error} tone="error" /> : null}
       <Card style={styles.profileCard}>
         <View style={styles.identityRow}>
@@ -46,19 +49,18 @@ export default function CustomerDetailScreen() {
           <Money value={party.balance_amount} color={balanceColor} size="large" />
         </View>
         <View style={styles.details}>
-          <Detail icon="call-outline" value={party.phone} />
-          {party.account_number ? <Detail icon="card-outline" value={`Account ${party.account_number}`} /> : null}
+          {party.phone ? <Detail icon="call-outline" value={party.phone} /> : null}
           {party.address ? <Detail icon="location-outline" value={party.address} /> : null}
           {party.notes ? <Detail icon="document-text-outline" value={party.notes} /> : null}
         </View>
       </Card>
 
       <View style={styles.primaryActions}>
-        <View style={styles.actionButton}><Button title="New Sale" icon="cart-outline" onPress={() => router.push({ pathname: '/(tabs)/sale', params: { customerId: partyId } })} /></View>
-        <View style={styles.actionButton}><Button title={paymentSent ? 'Payment Sent' : 'Payment Received'} icon={paymentSent ? 'paper-plane-outline' : 'wallet-outline'} variant="secondary" onPress={() => router.push({ pathname: paymentSent ? '/outgoing-payment' : '/payment-new', params: { partyId, name: party.name } })} /></View>
+        <View style={styles.actionButton}><Button title={isFactory ? 'Receive Purchase' : 'New Sale'} icon={isFactory ? 'bag-add-outline' : 'cart-outline'} onPress={() => router.push({ pathname: isFactory ? '/purchase-new' : '/(tabs)/sale', params: isFactory ? { factoryId: partyId } : { customerId: partyId } })} /></View>
+        <View style={styles.actionButton}><Button title={isFactory ? 'Pay Factory' : paymentSent ? 'Payment Sent' : 'Payment Received'} icon={paymentSent ? 'paper-plane-outline' : 'wallet-outline'} variant="secondary" disabled={isFactory && !paymentSent} onPress={() => router.push({ pathname: isFactory || paymentSent ? '/outgoing-payment' : '/payment-new', params: { partyId, name: party.name } })} /></View>
       </View>
       <View style={styles.secondaryActions}>
-        <Pressable onPress={() => router.push({ pathname: '/credit-new', params: { partyId, name: party.name } })} style={styles.secondaryAction}><Icon name="repeat-outline" size={19} color={colors.primary} /><Text style={styles.secondaryText}>Credit / Loan</Text></Pressable>
+        {!isFactory ? <Pressable onPress={() => router.push({ pathname: '/credit-new', params: { partyId, name: party.name } })} style={styles.secondaryAction}><Icon name="repeat-outline" size={19} color={colors.primary} /><Text style={styles.secondaryText}>Credit / Loan</Text></Pressable> : null}
         <Pressable onPress={() => router.push({ pathname: '/customer-edit', params: { partyId } })} style={styles.secondaryAction}><Icon name="create-outline" size={19} color={colors.primary} /><Text style={styles.secondaryText}>Edit Profile</Text></Pressable>
       </View>
 

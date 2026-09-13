@@ -1,5 +1,53 @@
 # Changelog
 
+## 2.0.0 — Complete Amharic and English localization
+
+- Localized all 33 mobile routes, tabs, menus, headings, cards, forms, placeholders, dialogs, validation messages, loading/offline states and accessibility labels.
+- Added a compact `አማ / EN` switch at the top-right of Home and on Login so the language can be changed before or after authentication.
+- Defaulted new installations to Amharic and persisted the selected language securely across restarts.
+- Localized dynamic quantities, currency, dates, transaction descriptions, backend validation responses and report labels while leaving stored business records unchanged.
+- Added authenticated Amharic and English sale/Factory-purchase PNG receipts with an embedded Noto Sans Ethiopic font, bold readable labels and the existing store watermark.
+- Added an automated localization audit covering translation completeness, navigation, persistence, switches and receipt-language wiring.
+- Bumped the mobile application and release metadata to version 2.0.0.
+
+## 1.9.0 — Walk-in transaction history, flexible pricing and quantity validation
+
+- Added every completed walk-in sale to the unified Transactions history without creating a fake customer or balance ledger.
+- Added View, Download and Share PNG receipt actions to walk-in sale transaction rows.
+- Included walk-in sales in the Dashboard's Recent Transactions list while retaining the existing Today's Sales and Today's Transactions totals.
+- Enabled one-transaction selling-price overrides for walk-in customers, defaulting to the saved standard price and leaving the Product master price unchanged.
+- Kept walk-in sales fully paid by automatically recalculating Amount Paid when a price is changed.
+- Added immediate validation inside the direct unit-entry modal when a quantity is invalid or exceeds available stock.
+- The message now explains the entered amount, available stock and exact maximum allowed; Set Units remains disabled until corrected.
+- Added backend service/API coverage and mobile UI regression checks for all three behaviors.
+
+## 1.8.0 — Complete purchase receipt workflow and image transaction receipts
+
+- Changed every Stock-card Receive action to open the complete purchase workflow with its Factory and Product already selected.
+- Kept all required purchase fields available from that shortcut: received units, cost per piece, amount paid now, purchase date, reference/invoice and note.
+- Added direct numeric sale-unit entry by tapping the selected unit count, with stock-limit validation and the existing horizontal minus/plus controls retained.
+- Added an in-app View action beside Download and Share on eligible transaction records.
+- Added equivalent View, Download and Share receipts for completed Factory purchases in both Transactions and Purchases.
+- Changed mobile transaction downloads and shares to high-resolution PNG images suited to WhatsApp, Telegram and gallery/document storage.
+- Added a bold, readable receipt layout with a repeated low-contrast store-name watermark and immutable Product, Factory, pack-size, price/cost and amount snapshots.
+- Added `This sale/purchase outstanding` and the historical `Total outstanding` or `Total owed to factory` after that transaction.
+- Retained the authenticated sale PDF endpoint for backwards compatibility while the mobile app now uses PNG receipts.
+- Expanded backend receipt and balance-history tests and the mobile UI regression audit.
+
+## 1.7.0 — Factory-scoped inventory and negotiated sale prices
+
+- Added Factories as a third People type, with create, list, search, detail, edit, archive, purchase and payment workflows.
+- Removed account-number fields and search from Trader and Agent records.
+- Replaced product categories, SKUs and free-text suppliers with a required Factory relationship.
+- Added FF, TT and ID automatically for every existing store during migration and to fresh demo data.
+- Scoped product identity to Factory, allowing the same shoe/product ID under different factories while keeping stock separate.
+- Added an All/Factory filter to Stock and displayed Factory on products, stock history, sales, purchases, invoices and reports.
+- Restricted purchase suppliers to active Factories and restricted each purchase to products belonging to the selected Factory.
+- Added editable per-piece prices for Trader and Agent sale lines; Agent prices still default to 1.5% below standard.
+- Kept the saved product price unchanged when a one-sale price is negotiated.
+- Snapshotted actual selling price, cost and gross profit on every sale item for accurate invoices and reporting.
+- Added migration, tenant, duplicate-name, factory-filter, purchase-integrity and negotiated-price regression coverage.
+
 ## 1.6.0 — Sale quantity and navigation polish
 
 - Replaced the vertical product quantity control with a clear horizontal minus, unit count and plus row.

@@ -1,14 +1,16 @@
 import React from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, View } from 'react-native';
+import { Text, useI18n } from '@/i18n';
 import { colors, radius, spacing } from '@/theme';
 
 export type BarDatum = { label: string; value: number; color?: string };
 
 export function BarChart({ data, valueLabel = value => value.toLocaleString() }: { data: BarDatum[]; valueLabel?: (value: number) => string }) {
+  const { t } = useI18n();
   const maximum = Math.max(...data.map(item => item.value), 1);
   if (!data.length) return <Text style={styles.empty}>No data for this period.</Text>;
   return (
-    <View style={styles.chart} accessibilityLabel="Bar chart">
+    <View style={styles.chart} accessibilityLabel={t('Bar chart')}>
       {data.map((item, index) => (
         <View key={`${item.label}-${index}`} style={styles.row}>
           <Text numberOfLines={1} style={styles.label}>{item.label}</Text>

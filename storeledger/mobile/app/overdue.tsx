@@ -1,5 +1,6 @@
 import React, { useCallback, useState } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, View } from 'react-native';
+import { Text } from '@/i18n';
 import { router, useFocusEffect } from 'expo-router';
 import { useAuth } from '@/auth/AuthContext';
 import { BarChart } from '@/components/BarChart';

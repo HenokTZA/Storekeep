@@ -1,12 +1,13 @@
 import React, { useCallback, useState } from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, View } from 'react-native';
+import { Text } from '@/i18n';
 import { useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { Badge, Card, Icon, Loading, Message, Screen, Title } from '@/components/ui';
 import { cachedGet, errorMessage } from '@/lib/api';
 import { colors, radius, spacing } from '@/theme';
 import type { Paginated } from '@/types';
 
-type Movement = { id: number; movement_type: string; quantity_delta: string; balance_after: string; note: string; created_by_name: string; created_at: string };
+type Movement = { id: number; factory_name: string; movement_type: string; quantity_delta: string; balance_after: string; note: string; created_by_name: string; created_at: string };
 
 export default function StockHistoryScreen() {
   const { productId, name } = useLocalSearchParams<{ productId: string; name: string }>();
@@ -49,6 +50,7 @@ export default function StockHistoryScreen() {
                 <View style={styles.copy}>
                   <View style={styles.titleRow}><Text style={[styles.movementName, { color }]}>{item.movement_type.replaceAll('_', ' ').toUpperCase()}</Text><Badge label={`BALANCE ${item.balance_after}`} tone={tone} /></View>
                   <Text style={styles.note}>{item.note || 'No note'}</Text>
+                  <Text style={styles.factory}>Factory {item.factory_name}</Text>
                   <Text style={styles.meta}>{new Date(item.created_at).toLocaleString()}{item.created_by_name ? ` · ${item.created_by_name}` : ''}</Text>
                 </View>
                 <Text style={[styles.delta, { color }]}>{positive ? '+' : ''}{item.quantity_delta}</Text>
@@ -92,6 +94,7 @@ const styles = StyleSheet.create({
   titleRow: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: spacing.sm },
   movementName: { fontSize: 12, fontWeight: '900' },
   note: { color: colors.textSoft, fontSize: 13, lineHeight: 18, marginTop: 7 },
+  factory: { color: colors.primary, fontSize: 10, fontWeight: '900', marginTop: 4 },
   meta: { color: colors.muted, fontSize: 10, lineHeight: 15, marginTop: 5 },
   delta: { fontSize: 17, fontWeight: '900', paddingTop: 2 },
 });

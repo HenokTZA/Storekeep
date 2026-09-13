@@ -7,7 +7,6 @@ from django.utils import timezone
 from rest_framework import serializers
 
 from .models import (
-    Category,
     Expense,
     ExpenseCategory,
     FinancialTransaction,
@@ -55,18 +54,8 @@ class UserSerializer(serializers.ModelSerializer):
         return obj.get_full_name() or obj.username
 
 
-class CategorySerializer(serializers.ModelSerializer):
-    class Meta:
-        model = Category
-        fields = ("id", "name", "is_active", "created_at", "updated_at")
-        read_only_fields = ("is_active", "created_at", "updated_at")
-
-    def create(self, validated_data):
-        return Category.objects.create(store=self.context["store"], **validated_data)
-
-
 class ProductSerializer(serializers.ModelSerializer):
-    category_name = serializers.CharField(source="category.name", read_only=True)
+    factory_name = serializers.CharField(source="factory.name", read_only=True)
     current_quantity = serializers.SerializerMethodField()
     is_low_stock = serializers.SerializerMethodField()
     agent_selling_price = serializers.SerializerMethodField()
@@ -79,9 +68,8 @@ class ProductSerializer(serializers.ModelSerializer):
         fields = (
             "id",
             "name",
-            "sku",
-            "category",
-            "category_name",
+            "factory",
+            "factory_name",
             "unit",
             "pieces_per_unit",
             "purchase_price",
@@ -90,7 +78,6 @@ class ProductSerializer(serializers.ModelSerializer):
             "pack_selling_price",
             "agent_pack_selling_price",
             "minimum_stock_threshold",
-            "supplier",
             "notes",
             "current_quantity",
             "is_low_stock",
@@ -125,10 +112,32 @@ class ProductSerializer(serializers.ModelSerializer):
     def get_is_low_stock(self, obj):
         return self.get_current_quantity(obj) <= obj.minimum_stock_threshold
 
-    def validate_category(self, category):
-        if category and category.store_id != self.context["store"].id:
-            raise serializers.ValidationError("Category does not belong to this store.")
-        return category
+    def validate_factory(self, factory):
+        if factory.store_id != self.context["store"].id:
+            raise serializers.ValidationError("Factory does not belong to this store.")
+        if factory.party_type != Party.PartyType.FACTORY or not factory.is_active:
+            raise serializers.ValidationError("Choose an active factory.")
+        return factory
+
+    def validate(self, attrs):
+        attrs = super().validate(attrs)
+        store = self.context["store"]
+        factory = attrs.get("factory", getattr(self.instance, "factory", None))
+        name = attrs.get("name", getattr(self.instance, "name", "")).strip()
+        duplicate = Product.objects.filter(
+            store=store,
+            factory=factory,
+            name__iexact=name,
+            is_active=True,
+        )
+        if self.instance:
+            duplicate = duplicate.exclude(pk=self.instance.pk)
+        if duplicate.exists():
+            raise serializers.ValidationError(
+                {"name": "A product with this name already exists for the selected factory."}
+            )
+        attrs["name"] = name
+        return attrs
 
     def create(self, validated_data):
         initial_quantity = validated_data.pop("initial_quantity", 0)
@@ -162,6 +171,7 @@ class StockMovementSerializer(serializers.ModelSerializer):
             "id",
             "product",
             "product_name",
+            "factory_name",
             "movement_type",
             "quantity_delta",
             "balance_after",
@@ -186,7 +196,6 @@ class PartySerializer(serializers.ModelSerializer):
             "name",
             "company",
             "phone",
-            "account_number",
             "address",
             "notes",
             "current_balance",
@@ -209,6 +218,34 @@ class PartySerializer(serializers.ModelSerializer):
         if obj.current_balance < 0:
             return "green"
         return "neutral"
+
+    def validate(self, attrs):
+        attrs = super().validate(attrs)
+        store = self.context["store"]
+        party_type = attrs.get("party_type", getattr(self.instance, "party_type", None))
+        if self.instance and party_type != self.instance.party_type:
+            raise serializers.ValidationError(
+                {"party_type": "A Trader, Agent or Factory type cannot be changed after creation."}
+            )
+        phone = attrs.get("phone", getattr(self.instance, "phone", "")).strip()
+        name = attrs.get("name", getattr(self.instance, "name", "")).strip()
+        if party_type != Party.PartyType.FACTORY and not phone:
+            raise serializers.ValidationError({"phone": "Phone number is required for traders and agents."})
+        if party_type == Party.PartyType.FACTORY:
+            duplicate = Party.objects.filter(
+                store=store,
+                party_type=Party.PartyType.FACTORY,
+                name__iexact=name,
+                is_active=True,
+            )
+            if self.instance:
+                duplicate = duplicate.exclude(pk=self.instance.pk)
+            if duplicate.exists():
+                raise serializers.ValidationError({"name": "A factory with this name already exists."})
+            attrs["sms_enabled"] = False
+        attrs["name"] = name
+        attrs["phone"] = phone
+        return attrs
 
     def create(self, validated_data):
         return Party.objects.create(store=self.context["store"], **validated_data)
@@ -236,14 +273,18 @@ class SaleItemSerializer(serializers.ModelSerializer):
             "id",
             "product",
             "product_name",
-            "sku",
+            "factory_name",
             "quantity",
             "pieces_per_unit",
             "total_pieces",
             "unit_price",
             "pack_price",
             "line_total",
+            "unit_cost",
+            "line_cost",
+            "gross_profit",
         )
+        read_only_fields = ("unit_cost", "line_cost", "gross_profit")
 
 
 class SaleSerializer(serializers.ModelSerializer):
@@ -492,7 +533,7 @@ class PurchaseItemSerializer(serializers.ModelSerializer):
             "id",
             "product",
             "product_name",
-            "sku",
+            "factory_name",
             "quantity",
             "pieces_per_unit",
             "total_pieces",
@@ -504,6 +545,7 @@ class PurchaseItemSerializer(serializers.ModelSerializer):
 
 class PurchaseSerializer(serializers.ModelSerializer):
     supplier_id = serializers.IntegerField(write_only=True)
+    supplier_record_id = serializers.IntegerField(source="supplier_id", read_only=True)
     supplier_name = serializers.CharField(source="supplier.name", read_only=True)
     purchase_items = PurchaseItemInputSerializer(many=True, write_only=True, source="input_items")
     items = PurchaseItemSerializer(many=True, read_only=True)
@@ -514,6 +556,7 @@ class PurchaseSerializer(serializers.ModelSerializer):
         fields = (
             "id",
             "supplier_id",
+            "supplier_record_id",
             "supplier_name",
             "idempotency_key",
             "status",

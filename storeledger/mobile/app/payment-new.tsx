@@ -1,5 +1,6 @@
 import React, { useCallback, useState } from 'react';
-import { Alert, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, View } from 'react-native';
+import { localizedAlert, Text } from '@/i18n';
 import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { Badge, Button, Card, Icon, Input, Loading, Message, Screen, SectionHeader, Title } from '@/components/ui';
 import { apiFetch, errorMessage } from '@/lib/api';
@@ -43,7 +44,7 @@ export default function NewPaymentScreen() {
     setError('');
     try {
       await apiFetch('/payments/', { method: 'POST', body: JSON.stringify({ party_id: partyId, amount, payment_date: paymentDate, method, direction: 'received', note, idempotency_key: createUuid() }) });
-      Alert.alert('Payment recorded', 'The customer balance and transaction history were updated.');
+      localizedAlert('Payment recorded', 'The customer balance and transaction history were updated.');
       router.back();
     } catch (nextError) {
       setError(errorMessage(nextError));

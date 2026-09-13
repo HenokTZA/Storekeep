@@ -1,9 +1,11 @@
 import React, { useCallback, useState } from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, View } from 'react-native';
+import { localizedAlert, Text } from '@/i18n';
 import { router, useFocusEffect } from 'expo-router';
 import { useAuth } from '@/auth/AuthContext';
 import { Badge, Button, Card, Icon, Loading, Message, Money, Screen, Title } from '@/components/ui';
 import { cachedGet, errorMessage } from '@/lib/api';
+import { downloadTransactionReceipt, shareTransactionReceipt } from '@/lib/invoices';
 import { colors, radius, spacing } from '@/theme';
 import type { Paginated, Purchase } from '@/types';
 
@@ -11,6 +13,7 @@ export default function PurchasesScreen() {
   const { store, role } = useAuth();
   const [items, setItems] = useState<Purchase[]>([]);
   const [loading, setLoading] = useState(true);
+  const [receiptBusy, setReceiptBusy] = useState('');
   const [error, setError] = useState('');
   const load = useCallback(async () => {
     try {
@@ -23,11 +26,27 @@ export default function PurchasesScreen() {
     }
   }, []);
   useFocusEffect(useCallback(() => { load(); }, [load]));
+  const runReceiptAction = async (purchaseId: string, action: 'download' | 'share') => {
+    setReceiptBusy(`${action}:${purchaseId}`);
+    setError('');
+    try {
+      if (action === 'share') {
+        await shareTransactionReceipt('purchase', purchaseId);
+      } else {
+        const saved = await downloadTransactionReceipt('purchase', purchaseId);
+        if (saved) localizedAlert('Receipt saved', 'The PNG purchase receipt was saved in the folder you selected.');
+      }
+    } catch (nextError) {
+      setError(errorMessage(nextError));
+    } finally {
+      setReceiptBusy('');
+    }
+  };
   if (loading) return <Screen scroll={false}><Loading /></Screen>;
   const canCreate = role === 'owner' || role === 'manager';
   return (
     <Screen>
-      <Title eyebrow="Procurement" subtitle="Every purchase receives stock and records the supplier payable">Purchases</Title>
+      <Title eyebrow="Procurement" subtitle="Every purchase receives factory stock and records its payable">Purchases</Title>
       {error ? <Message text={error} tone="error" /> : null}
       {canCreate ? <Button title="Receive Purchase" icon="bag-add-outline" onPress={() => router.push('/purchase-new')} /> : null}
       {items.length ? items.map(item => {
@@ -48,9 +67,14 @@ export default function PurchasesScreen() {
               <View style={styles.outstanding}><Text style={[styles.totalLabel, { color: outstanding > 0 ? colors.success : colors.muted }]}>I OWE</Text><Text style={[styles.owe, { color: outstanding > 0 ? colors.success : colors.muted }]}>{outstanding.toLocaleString()} {store?.currency}</Text></View>
               <Badge label={outstanding > 0 ? 'PARTIAL' : 'PAID'} tone={outstanding > 0 ? 'warning' : 'success'} />
             </View>
+            <View style={styles.receiptActions}>
+              <View style={styles.receiptAction}><Button title="View" icon="eye-outline" compact variant="secondary" onPress={() => router.push({ pathname: '/receipt-view', params: { kind: 'purchase', documentId: item.id } })} /></View>
+              <View style={styles.receiptAction}><Button title={receiptBusy === `download:${item.id}` ? 'Saving…' : 'Download'} icon="download-outline" compact variant="secondary" disabled={Boolean(receiptBusy)} onPress={() => runReceiptAction(item.id, 'download')} /></View>
+              <View style={styles.receiptAction}><Button title={receiptBusy === `share:${item.id}` ? 'Opening…' : 'Share'} icon="share-social-outline" compact variant="secondary" disabled={Boolean(receiptBusy)} onPress={() => runReceiptAction(item.id, 'share')} /></View>
+            </View>
           </Card>
         );
-      }) : <Message text="No supplier purchases recorded yet." />}
+      }) : <Message text="No factory purchases recorded yet." />}
     </Screen>
   );
 }
@@ -72,4 +96,6 @@ const styles = StyleSheet.create({
   paid: { color: colors.text, fontSize: 12, fontWeight: '900', marginTop: 2 },
   outstanding: { alignItems: 'flex-end' },
   owe: { fontSize: 12, fontWeight: '900', marginTop: 2 },
+  receiptActions: { flexDirection: 'row', gap: spacing.sm, marginTop: spacing.md, paddingTop: spacing.mdSm, borderTopWidth: 1, borderTopColor: colors.border },
+  receiptAction: { flex: 1 },
 });

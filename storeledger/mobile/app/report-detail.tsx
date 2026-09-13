@@ -1,5 +1,6 @@
 import React, { useCallback, useState } from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, View } from 'react-native';
+import { Text } from '@/i18n';
 import { useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { Badge, Card, Icon, Loading, Message, Screen, Title } from '@/components/ui';
 import { apiFetch, errorMessage } from '@/lib/api';

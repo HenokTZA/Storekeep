@@ -1,5 +1,6 @@
 import React, { useCallback, useMemo, useState } from 'react';
-import { Alert, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Platform, Pressable, StyleSheet, View } from 'react-native';
+import { localizedAlert, Text } from '@/i18n';
 import { router, useFocusEffect } from 'expo-router';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as Sharing from 'expo-sharing';
@@ -72,7 +73,7 @@ export default function ReportsScreen() {
       }
       const target = `${FileSystem.documentDirectory}store-report-${report.id}.${extension}`;
       const result = await FileSystem.downloadAsync(url, target, { headers });
-      if (await Sharing.isAvailableAsync()) await Sharing.shareAsync(result.uri); else Alert.alert('Downloaded', result.uri);
+      if (await Sharing.isAvailableAsync()) await Sharing.shareAsync(result.uri); else localizedAlert('Downloaded', result.uri);
     } catch (nextError) {
       setError(errorMessage(nextError));
     }

@@ -1,0 +1,999 @@
+import React, { createContext, useContext, useEffect, useMemo, useState } from 'react';
+import {
+  Alert,
+  Pressable,
+  StyleSheet,
+  Text as NativeText,
+  View,
+} from 'react-native';
+import type { AlertButton, AlertOptions, TextProps } from 'react-native';
+import { secureGet, secureSet } from '@/lib/storage';
+import { colors, radius, spacing } from '@/theme';
+
+export type Language = 'am' | 'en';
+
+const LANGUAGE_KEY = 'storeledger.language';
+let activeLanguage: Language = 'am';
+
+const amharic: Record<string, string> = {
+  // Navigation and global actions.
+  'home': 'መነሻ',
+  'stock': 'ክምችት',
+  'sale': 'ሽያጭ',
+  'people': 'ሰዎች',
+  'more': 'ተጨማሪ',
+  'all': 'ሁሉም',
+  '(optional)': '(አማራጭ)',
+  'add': 'ጨምር',
+  'edit': 'አርትዕ',
+  'save': 'አስቀምጥ',
+  'cancel': 'ሰርዝ',
+  'close': 'ዝጋ',
+  'view': 'እይ',
+  'download': 'አውርድ',
+  'share': 'አጋራ',
+  'search': 'ፈልግ',
+  'reset': 'መልስ',
+  'remove': 'አስወግድ',
+  'archive': 'መዝግብ',
+  'reverse': 'ቀልብስ',
+  'manage': 'አስተዳድር',
+  'previous': 'ቀዳሚ',
+  'next': 'ቀጣይ',
+  'loading…': 'በመጫን ላይ…',
+  'saving…': 'በማስቀመጥ ላይ…',
+  'opening…': 'በመክፈት ላይ…',
+  'preparing…': 'በማዘጋጀት ላይ…',
+  'working…': 'በመስራት ላይ…',
+  'running…': 'በመስራት ላይ…',
+  'generating…': 'በማመንጨት ላይ…',
+  'posting…': 'በመመዝገብ ላይ…',
+  'signing in…': 'በመግባት ላይ…',
+  'sign in': 'ግባ',
+  'sign out': 'ውጣ',
+  'go back': 'ተመለስ',
+  'refresh dashboard': 'ዳሽቦርዱን አድስ',
+  'refresh details': 'ዝርዝሩን አድስ',
+  'view details': 'ዝርዝር እይ',
+  "open today's activity": 'የዛሬን እንቅስቃሴ ክፈት',
+  'view all': 'ሁሉንም እይ',
+  'view stock': 'ክምችት እይ',
+  'no': 'ምንም',
+  'found': 'አልተገኘም',
+  'of': 'ከ',
+  'to': 'እስከ',
+  'by': 'በ',
+  'add the first': 'የመጀመሪያውን ያክሉ',
+  'or try another search.': 'ወይም ሌላ ፍለጋ ይሞክሩ።',
+  'archive this': 'ይህን መዝግብ',
+
+  // Authentication and brand copy.
+  'simple books. clear business.': 'ቀላል ሂሳብ። ግልጽ ንግድ።',
+  'welcome back': 'እንኳን ደህና መጡ',
+  'sign in to manage your store, stock and customer balances.': 'መደብርዎን፣ ክምችትዎን እና የደንበኞችን ሂሳብ ለማስተዳደር ይግቡ።',
+  'username': 'የተጠቃሚ ስም',
+  'password': 'የይለፍ ቃል',
+  'enter your username': 'የተጠቃሚ ስምዎን ያስገቡ',
+  'enter your password': 'የይለፍ ቃልዎን ያስገቡ',
+  'your store data is protected and scoped to your account.': 'የመደብርዎ መረጃ የተጠበቀ ሲሆን ለእርስዎ መለያ ብቻ የተገደበ ነው።',
+  'connected to': 'የተገናኘው ከ',
+  'this account is not assigned to a store.': 'ይህ መለያ ለምንም መደብር አልተመደበም።',
+
+  // Dashboard.
+  'good to see you,': 'ሰላም፣',
+  'there': 'ጓደኛ',
+  "here is today's business overview.": 'የዛሬው የንግድ አጠቃላይ ሁኔታ ይኸውልዎ።',
+  'open notifications': 'ማሳወቂያዎችን ክፈት',
+  'search products, people, sales, expenses…': 'ምርቶችን፣ ሰዎችን፣ ሽያጮችን፣ ወጪዎችን ፈልግ…',
+  "you're offline. showing the most recently saved dashboard.": 'ከመስመር ውጭ ነዎት። በቅርብ የተቀመጠው ዳሽቦርድ ታይቷል።',
+  'overview': 'አጠቃላይ እይታ',
+  'tap any card to see the complete details': 'ሙሉ ዝርዝሩን ለማየት ማንኛውንም ካርድ ይንኩ',
+  "today's sales": 'የዛሬ ሽያጭ',
+  'collected': 'የተሰበሰበ',
+  'owes me': 'የሚከፈለኝ',
+  'i owe': 'የምከፍለው',
+  "today's expenses": 'የዛሬ ወጪ',
+  'month expenses': 'የወሩ ወጪ',
+  "today's transactions": 'የዛሬ ግብይቶች',
+  'quick actions': 'ፈጣን ተግባራት',
+  'everything you use most, one tap away': 'በብዛት የሚጠቀሙባቸው ተግባራት በአንድ ንክኪ',
+  'new sale': 'አዲስ ሽያጭ',
+  'add stock': 'ክምችት ጨምር',
+  'add trader': 'ነጋዴ ጨምር',
+  'add agent': 'ወኪል ጨምር',
+  'record payment': 'ክፍያ መዝግብ',
+  'pay someone': 'ለሰው ክፈል',
+  'add expense': 'ወጪ ጨምር',
+  'receive purchase': 'ግዢ ተቀበል',
+  'monthly expense budget': 'የወር ወጪ በጀት',
+  'alerts': 'ማስጠንቀቂያዎች',
+  'items that may need your attention': 'ትኩረትዎን ሊፈልጉ የሚችሉ ነገሮች',
+  'low-stock items': 'ክምችታቸው ዝቅተኛ የሆኑ እቃዎች',
+  'unread notifications': 'ያልተነበቡ ማሳወቂያዎች',
+  'customers owing me': 'ዕዳ ያለባቸው ደንበኞች',
+  'store payables': 'የመደብሩ ተከፋይ ሂሳቦች',
+  'low-stock products': 'ዝቅተኛ ክምችት ያላቸው ምርቶች',
+  'recent transactions': 'የቅርብ ግብይቶች',
+  'no transactions yet.': 'እስካሁን ምንም ግብይት የለም።',
+  'type at least two characters to search.': 'ለመፈለግ ቢያንስ ሁለት ፊደሎችን ያስገቡ።',
+  'spent': 'ወጪ ሆኗል',
+  'remaining': 'ቀሪ',
+  '% used': '% ጥቅም ላይ ውሏል',
+
+  // Stock and products.
+  'inventory': 'ክምችት',
+  'inventory movement': 'የክምችት እንቅስቃሴ',
+  'inventory audit': 'የክምችት ኦዲት',
+  'add product': 'ምርት ጨምር',
+  'edit product': 'ምርት አርትዕ',
+  'save product': 'ምርት አስቀምጥ',
+  'product details': 'የምርት ዝርዝር',
+  'factory, shoe id/name and distributor pack': 'ፋብሪካ፣ የጫማ መለያ/ስም እና የአከፋፋይ ጥቅል',
+  'add the product once, then manage stock through recorded movements': 'ምርቱን አንድ ጊዜ ጨምረው ክምችቱን በተመዘገቡ እንቅስቃሴዎች ያስተዳድሩ',
+  'add a factory before adding stock. products are tracked separately for each factory.': 'ክምችት ከመጨመርዎ በፊት ፋብሪካ ያክሉ። ምርቶች ለእያንዳንዱ ፋብሪካ ለየብቻ ይከታተላሉ።',
+  'product name / shoe id': 'የምርት ስም / የጫማ መለያ',
+  'e.g. shoe 356': 'ለምሳሌ፦ ጫማ 356',
+  'stock unit / pack name': 'የክምችት ዩኒት / የጥቅል ስም',
+  'carton, pack, case…': 'ካርቶን፣ ጥቅል፣ ኬዝ…',
+  'pieces in one unit': 'በአንድ ዩኒት ውስጥ ያሉ ቁራጮች',
+  'example: enter 54 when one carton contains 54 individual pieces.': 'ለምሳሌ፦ አንድ ካርቶን 54 ቁራጮችን ከያዘ 54 ያስገቡ።',
+  'pricing': 'ዋጋ',
+  'pricing & alerts': 'ዋጋ እና ማስጠንቀቂያዎች',
+  'enter prices for one individual piece': 'የአንድ ቁራጭ ዋጋ ያስገቡ',
+  'purchase / piece': 'የግዢ ዋጋ / ቁራጭ',
+  'selling / piece': 'የመሸጫ ዋጋ / ቁራጭ',
+  'agent sales start at 1.5% below this price; the price can be negotiated for one sale.': 'የወኪል ሽያጭ ከዚህ ዋጋ 1.5% በታች ይጀምራል፤ ለአንድ ሽያጭ ዋጉን መደራደር ይቻላል።',
+  'opening inventory': 'የመነሻ ክምችት',
+  'set the starting balance and alert threshold': 'የመነሻ ክምችትና የማስጠንቀቂያ ደረጃ ያስገቡ',
+  'opening units': 'የመነሻ ዩኒቶች',
+  'low-stock units': 'ዝቅተኛ ክምችት ዩኒቶች',
+  'low-stock threshold': 'የዝቅተኛ ክምችት ገደብ',
+  'notes': 'ማስታወሻዎች',
+  'notes (optional)': 'ማስታወሻዎች (አማራጭ)',
+  'update product details without changing recorded history': 'የተመዘገበውን ታሪክ ሳይቀይሩ የምርት ዝርዝሩን ያዘምኑ',
+  'factory': 'ፋብሪካ',
+  'factories': 'ፋብሪካዎች',
+  'choose factory': 'ፋብሪካ ይምረጡ',
+  'select a factory': 'ፋብሪካ ይምረጡ',
+  'stock is kept separately for each factory.': 'ክምችት ለእያንዳንዱ ፋብሪካ ለየብቻ ይያዛል።',
+  'search factories': 'ፋብሪካዎችን ፈልግ',
+  'no factories match this search.': 'ከዚህ ፍለጋ ጋር የሚዛመድ ፋብሪካ የለም።',
+  'filter by factory': 'በፋብሪካ አጣራ',
+  'search product name or factory': 'የምርት ስም ወይም ፋብሪካ ፈልግ',
+  'available': 'ያለ',
+  'price / piece': 'ዋጋ / ቁራጭ',
+  'in stock': 'በክምችት አለ',
+  'low stock': 'ክምችት ዝቅተኛ ነው',
+  'receive': 'ተቀበል',
+  'adjust': 'አስተካክል',
+  'history': 'ታሪክ',
+  'no products found': 'ምንም ምርት አልተገኘም',
+  'no active products are available.': 'ምንም ንቁ ምርት አይገኝም።',
+  'no products match this search.': 'ከዚህ ፍለጋ ጋር የሚዛመድ ምርት የለም።',
+  'no note': 'ማስታወሻ የለም',
+  'not selected': 'አልተመረጠም',
+  'e.g. ff': 'ለምሳሌ፦ FF',
+  'etb /': 'ብር /',
+  'pieces ×': 'ቁራጮች ×',
+  'page': 'ገጽ',
+  'add your first product or try a different search.': 'የመጀመሪያውን ምርት ያክሉ ወይም ሌላ ፍለጋ ይሞክሩ።',
+  "you're offline. showing saved stock data.": 'ከመስመር ውጭ ነዎት። የተቀመጠው የክምችት መረጃ ታይቷል።',
+  'current': 'አሁን',
+  'default agent price (−1.5%)': 'መደበኛ የወኪል ዋጋ (−1.5%)',
+  'this changes future sales only; completed invoices keep their original pack size.': 'ይህ የወደፊት ሽያጮችን ብቻ ይቀይራል፤ የተጠናቀቁ ደረሰኞች የቀድሞውን የጥቅል መጠን ይይዛሉ።',
+  'archive product?': 'ምርቱ ይመዝገብ?',
+  'archive this product': 'ይህን ምርት መዝግብ',
+  'historical sales and stock movements will remain available.': 'የቀድሞ ሽያጮችና የክምችት እንቅስቃሴዎች እንደተጠበቁ ይቆያሉ።',
+  'historical sales and movements remain available.': 'የቀድሞ ሽያጮችና እንቅስቃሴዎች እንደተጠበቁ ይቆያሉ።',
+  'adjust stock': 'ክምችት አስተካክል',
+  'receive stock': 'ክምችት ተቀበል',
+  'every change is saved in the permanent stock history': 'እያንዳንዱ ለውጥ በቋሚ የክምችት ታሪክ ውስጥ ይቀመጣል',
+  'manual stock correction': 'የክምችት ማስተካከያ',
+  'stock receipt': 'የክምችት መቀበያ',
+  'adjustment type': 'የማስተካከያ አይነት',
+  'increase': 'ጨምር',
+  'decrease': 'ቀንስ',
+  'units to adjust': 'የሚስተካከሉ ዩኒቶች',
+  'units received': 'የተቀበሉ ዩኒቶች',
+  'reason / note': 'ምክንያት / ማስታወሻ',
+  'why is this stock changing?': 'ይህ ክምችት ለምን እየተቀየረ ነው?',
+  'save adjustment': 'ማስተካከያውን አስቀምጥ',
+  'this movement will be recorded with its note, user and timestamp.': 'ይህ እንቅስቃሴ ከማስታወሻው፣ ተጠቃሚው እና ጊዜው ጋር ይመዘገባል።',
+  'stock history': 'የክምችት ታሪክ',
+  'every receipt, sale and adjustment in chronological order': 'ሁሉም ግብዓት፣ ሽያጭ እና ማስተካከያ በጊዜ ቅደም ተከተል',
+  'recorded movement': 'የተመዘገበ እንቅስቃሴ',
+  'balance': 'ቀሪ ሂሳብ',
+  'pieces per': 'ቁራጭ በ',
+  'pcs per unit': 'ቁራጭ በዩኒት',
+  'units (': 'ዩኒቶች (',
+  'pieces)': 'ቁራጮች)',
+  'no stock movements recorded yet.': 'እስካሁን ምንም የክምችት እንቅስቃሴ አልተመዘገበም።',
+
+  // Parties and balances.
+  'people & balances': 'ሰዎች እና ሂሳቦች',
+  'trader': 'ነጋዴ',
+  'traders': 'ነጋዴዎች',
+  'agent': 'ወኪል',
+  'agents': 'ወኪሎች',
+  'factories supply the products you distribute': 'ፋብሪካዎች የሚያከፋፍሏቸውን ምርቶች ያቀርባሉ',
+  "balances are shown from your store's perspective": 'ሂሳቦች ከመደብርዎ አንጻር ይታያሉ',
+  'purchase': 'ግዢ',
+  'payment': 'ክፍያ',
+  'pay': 'ክፈል',
+  'credit': 'ብድር',
+  'profile': 'መገለጫ',
+  'add customer': 'ደንበኛ ጨምር',
+  'customer profile': 'የደንበኛ መገለጫ',
+  'edit customer': 'ደንበኛ አርትዕ',
+  'create a new': 'አዲስ',
+  'profile and financial ledger': 'መገለጫ እና የፋይናንስ ሒሳብ ይፍጠሩ',
+  'add a stock source and factory payable ledger': 'የክምችት ምንጭና የፋብሪካ ተከፋይ ሒሳብ ያክሉ',
+  'new': 'አዲስ',
+  'products and purchases will be organized under this factory.': 'ምርቶችና ግዢዎች በዚህ ፋብሪካ ስር ይደራጃሉ።',
+  'agent pricing defaults apply, with a per-sale override when needed.': 'የወኪል መደበኛ ዋጋ ይተገበራል፤ ሲያስፈልግ ለእያንዳንዱ ሽያጭ መቀየር ይቻላል።',
+  'track sales, payments and running balances.': 'ሽያጮችን፣ ክፍያዎችን እና ተንቀሳቃሽ ሂሳቦችን ይከታተሉ።',
+  'factory details': 'የፋብሪካ ዝርዝር',
+  'contact': 'የእውቂያ መረጃ',
+  'factory name is required; contact details are optional': 'የፋብሪካ ስም ያስፈልጋል፤ የእውቂያ መረጃ አማራጭ ነው',
+  'the name and phone number are required': 'ስምና ስልክ ቁጥር ያስፈልጋሉ',
+  'factory name': 'የፋብሪካ ስም',
+  'contact name': 'የእውቂያ ስም',
+  'full name': 'ሙሉ ስም',
+  'contact person': 'ተጠሪ ሰው',
+  'contact person (optional)': 'ተጠሪ ሰው (አማራጭ)',
+  'factory representative': 'የፋብሪካ ተወካይ',
+  'company': 'ድርጅት',
+  'company (optional)': 'ድርጅት (አማራጭ)',
+  'company or shop name': 'የድርጅት ወይም የሱቅ ስም',
+  'phone': 'ስልክ',
+  'phone number': 'ስልክ ቁጥር',
+  'phone number (optional)': 'ስልክ ቁጥር (አማራጭ)',
+  'additional details': 'ተጨማሪ ዝርዝሮች',
+  'optional information for delivery and reference': 'ለማድረስ እና ለማጣቀሻ የሚረዳ አማራጭ መረጃ',
+  'address': 'አድራሻ',
+  'address (optional)': 'አድራሻ (አማራጭ)',
+  'area, city': 'አካባቢ፣ ከተማ',
+  'add relevant notes': 'አስፈላጊ ማስታወሻ ያክሉ',
+  'sales default to 1.5% below the standard price. you can override the price for an individual sale.': 'የወኪል ሽያጭ ከመደበኛ ዋጋ 1.5% በታች ይጀምራል። ለአንድ ሽያጭ ዋጉን መቀየር ይችላሉ።',
+  'products with the same name can be stored separately when they belong to different factories.': 'ተመሳሳይ ስም ያላቸው ምርቶች ከተለያዩ ፋብሪካዎች ከሆኑ ለየብቻ ሊያዙ ይችላሉ።',
+  'update contact and reference information': 'የእውቂያና የማጣቀሻ መረጃውን ያዘምኑ',
+  'save changes': 'ለውጦችን አስቀምጥ',
+  'requires a zero balance and no active products.': 'ቀሪ ሂሳቡ ዜሮ እና ንቁ ምርት እንዳይኖር ያስፈልጋል።',
+  'requires a zero balance. history is preserved.': 'ቀሪ ሂሳቡ ዜሮ መሆን አለበት። ታሪኩ ይጠበቃል።',
+  'settle its balance and archive or move all active products first. financial history remains available.': 'መጀመሪያ ሂሳቡን ያወራርዱ እና ሁሉንም ንቁ ምርቶች ያስመዝግቡ ወይም ያዛውሩ። የፋይናንስ ታሪኩ ይቆያል።',
+  'settle its balance first. financial history remains available and cannot be deleted.': 'መጀመሪያ ሂሳቡን ያወራርዱ። የፋይናንስ ታሪኩ ይቆያል እና ሊሰረዝ አይችልም።',
+  'contact, balance and permanent transaction history': 'የእውቂያ መረጃ፣ ቀሪ ሂሳብ እና ቋሚ የግብይት ታሪክ',
+  'current running balance': 'የአሁኑ ቀሪ ሂሳብ',
+  'pay factory': 'ለፋብሪካ ክፈል',
+  'payment sent': 'የተላከ ክፍያ',
+  'payment received': 'የተቀበለ ክፍያ',
+  'credit / loan': 'ብድር',
+  'credit or loan adjustment': 'የብድር ማስተካከያ',
+  'edit profile': 'መገለጫ አርትዕ',
+  'transaction history': 'የግብይት ታሪክ',
+  'no transaction history yet.': 'እስካሁን የግብይት ታሪክ የለም።',
+  'running balance:': 'ቀሪ ሂሳብ፦',
+  'settled': 'የተወራረደ',
+
+  // Point of sale.
+  'point of sale': 'የሽያጭ ቦታ',
+  'choose a customer, sell in packs and confirm payment': 'ደንበኛ ይምረጡ፣ በጥቅል ይሽጡ እና ክፍያውን ያረጋግጡ',
+  'customer': 'ደንበኛ',
+  'products': 'ምርቶች',
+  '1. customer': '1. ደንበኛ',
+  '2. products': '2. ምርቶች',
+  '3. payment': '3. ክፍያ',
+  'walk-in': 'ያልተመዘገበ ደንበኛ',
+  'walk-in customer': 'ያልተመዘገበ ደንበኛ',
+  'walk-in sales must be paid in full': 'ያልተመዘገበ ደንበኛ ሽያጭ ሙሉ በሙሉ መከፈል አለበት',
+  'agent pricing applies': 'የወኪል ዋጋ ተፈጻሚ ነው',
+  'agent prices default to 1.5% below standard. you can negotiate and override each selected product below.': 'የወኪል ዋጋ በነባሪ ከመደበኛው 1.5% ያነሰ ነው። ከታች ለተመረጠው ምርት ዋጋውን መደራደርና መቀየር ይችላሉ።',
+  "the standard price is prefilled. edit any selected product's price for this sale only.": 'መደበኛው ዋጋ ተሞልቷል። ለዚህ ሽያጭ ብቻ የተመረጠውን ምርት ዋጋ መቀየር ይችላሉ።',
+  'pcs / unit': 'ቁራጭ / ዩኒት',
+  'per piece': 'በቁራጭ',
+  'etb per unit': 'ብር በዩኒት',
+  'etb standard price / piece': 'ብር መደበኛ ዋጋ / ቁራጭ',
+  'sale quantity': 'የሽያጭ ብዛት',
+  'units / packs': 'ዩኒቶች / ጥቅሎች',
+  'tap to enter': 'ለማስገባት ይንኩ',
+  'selling price for this sale': 'የዚህ ሽያጭ መሸጫ ዋጋ',
+  'actual price / piece': 'ትክክለኛ ዋጋ / ቁራጭ',
+  'custom price will be recorded on this invoice only.': 'የተቀየረው ዋጋ በዚህ ደረሰኝ ላይ ብቻ ይመዘገባል።',
+  'review the invoice before final confirmation': 'ከመጨረሻ ማረጋገጫ በፊት ደረሰኙን ይመልከቱ',
+  'sale total': 'ጠቅላላ ሽያጭ',
+  'amount paid': 'የተከፈለ መጠን',
+  'walk-in sales are automatically paid in full.': 'ያልተመዘገበ ደንበኛ ሽያጭ በራስ-ሰር ሙሉ እንደተከፈለ ይመዘገባል።',
+  'note (optional)': 'ማስታወሻ (አማራጭ)',
+  'add a reference or note': 'ማጣቀሻ ወይም ማስታወሻ ያክሉ',
+  'view invoice': 'ደረሰኝ እይ',
+  'saving sale…': 'ሽያጩን በማስቀመጥ ላይ…',
+  "saving updates stock and the selected customer's balance in one transaction.": 'ማስቀመጥ ክምችትንና የተመረጠውን ደንበኛ ሂሳብ በአንድ ግብይት ያዘምናል።',
+  'select at least one product.': 'ቢያንስ አንድ ምርት ይምረጡ።',
+  'enter a valid selling price for every selected product.': 'ለእያንዳንዱ የተመረጠ ምርት ትክክለኛ የመሸጫ ዋጋ ያስገቡ።',
+  'reconnect to the internet before posting this financial transaction. your draft is saved.': 'ይህን የፋይናንስ ግብይት ከመመዝገብዎ በፊት ወደ ኢንተርኔት ይገናኙ። ረቂቁ ተቀምጧል።',
+  'sale saved': 'ሽያጩ ተቀምጧል',
+  'stock, transaction history and receipt were created successfully.': 'ክምችት፣ የግብይት ታሪክ እና ደረሰኝ በተሳካ ሁኔታ ተፈጥረዋል።',
+  'enter units / bags': 'ዩኒት / ቦርሳ ያስገቡ',
+  'number of units / bags': 'የዩኒት / ቦርሳ ብዛት',
+  'enter zero to remove this product from the sale.': 'ይህን ምርት ከሽያጩ ለማስወገድ ዜሮ ያስገቡ።',
+  'set units': 'ዩኒቶችን አስቀምጥ',
+  'invoice preview': 'የደረሰኝ ቅድመ እይታ',
+  'invoice total': 'የደረሰኝ ድምር',
+  'default:': 'ነባሪ፦',
+  'etb / piece · this override applies only to this sale': 'ብር / ቁራጭ · ይህ ለውጥ ለዚህ ሽያጭ ብቻ ነው',
+  '/ piece': '/ ቁራጭ',
+  'individual pieces': 'ቁራጮች',
+  'lines': 'መስመሮች',
+  'low': 'ዝቅተኛ',
+  'units available': 'ዩኒቶች ይገኛሉ',
+  '· maximum': '· ከፍተኛ',
+  'offline mode: prepare the sale now; reconnect before saving. your draft stays on this device.': 'ከመስመር ውጭ፦ ሽያጩን አሁን ያዘጋጁ፤ ከማስቀመጥዎ በፊት ይገናኙ። ረቂቁ በዚህ መሣሪያ ላይ ይቆያል።',
+  'this is a preview. stock and balances change only after you confirm the sale.': 'ይህ ቅድመ እይታ ነው። ክምችትና ሂሳቦች ሽያጩን ካረጋገጡ በኋላ ብቻ ይቀየራሉ።',
+  'subtotal': 'ንዑስ ድምር',
+  'this sale outstanding': 'የዚህ ሽያጭ ቀሪ ዕዳ',
+  'total outstanding': 'ጠቅላላ ቀሪ ዕዳ',
+  'total customer credit': 'ጠቅላላ የደንበኛ ብድር',
+  'note': 'ማስታወሻ',
+  'edit sale': 'ሽያጩን አርትዕ',
+  'confirm & post': 'አረጋግጥ እና መዝግብ',
+  'close unit entry': 'የዩኒት ማስገቢያውን ዝጋ',
+  'close invoice preview': 'የደረሰኝ ቅድመ እይታውን ዝጋ',
+
+  // Purchases and payments.
+  'procurement': 'ግዥ',
+  'purchases': 'ግዢዎች',
+  'every purchase receives factory stock and records its payable': 'እያንዳንዱ ግዢ የፋብሪካ ክምችትን ይቀበላል እና ተከፋዩን ሂሳብ ይመዘግባል',
+  'no factory purchases recorded yet.': 'እስካሁን ምንም የፋብሪካ ግዢ አልተመዘገበም።',
+  'paid': 'ተከፍሏል',
+  'partial': 'ከፊል',
+  'more product lines': 'ተጨማሪ የምርት መስመሮች',
+  'receive product purchase': 'የምርት ግዢ ተቀበል',
+  'receive stock from a factory and post its payable together': 'ከፋብሪካ ክምችት ይቀበሉ እና ተከፋዩን ሂሳብ በአንድ ጊዜ ይመዝግቡ',
+  'opened from stock: the factory and product are already selected. complete the cost, payment, date, reference and note below.': 'ከክምችት ተከፍቷል፦ ፋብሪካውና ምርቱ ቀድሞ ተመርጠዋል። ከታች ወጪ፣ ክፍያ፣ ቀን፣ ማጣቀሻና ማስታወሻ ይሙሉ።',
+  '1. factory': '1. ፋብሪካ',
+  'purchase factory': 'የግዢ ፋብሪካ',
+  'only products belonging to this factory will be shown': 'የዚህ ፋብሪካ ምርቶች ብቻ ይታያሉ',
+  'no factories exist yet. add a factory before receiving a purchase.': 'እስካሁን ፋብሪካ የለም። ግዢ ከመቀበልዎ በፊት ፋብሪካ ያክሉ።',
+  'add factory': 'ፋብሪካ ጨምር',
+  '2. products received': '2. የተቀበሉ ምርቶች',
+  "search this factory's products": 'የዚህን ፋብሪካ ምርቶች ፈልግ',
+  'no products match this factory search.': 'ከዚህ የፋብሪካ ፍለጋ ጋር የሚዛመድ ምርት የለም።',
+  'add a product for this factory, or all matching products are already selected.': 'ለዚህ ፋብሪካ ምርት ያክሉ፣ ወይም ሁሉም ተዛማጅ ምርቶች ቀድሞ ተመርጠዋል።',
+  'units': 'ዩኒቶች',
+  'unit': 'ዩኒት',
+  'pieces': 'ቁራጮች',
+  'cost / piece': 'ወጪ / ቁራጭ',
+  'line total': 'የመስመር ድምር',
+  'any unpaid amount becomes an i owe balance': 'ያልተከፈለ መጠን የምከፍለው ሂሳብ ይሆናል',
+  'purchase total': 'ጠቅላላ ግዢ',
+  'amount paid now': 'አሁን የተከፈለ',
+  'i owe factory': 'ለፋብሪካ የምከፍለው',
+  'purchase date (yyyy-mm-dd)': 'የግዢ ቀን (ዓዓዓዓ-ወወ-ቀቀ)',
+  'reference / invoice (optional)': 'ማጣቀሻ / ደረሰኝ (አማራጭ)',
+  'post purchase & receive stock': 'ግዢውን መዝግብ እና ክምችቱን ተቀበል',
+  'purchase received': 'ግዢው ተቀብሏል',
+  'pcs / unit · stock': 'ቁራጭ / ዩኒት · ክምችት',
+  'pcs ×': 'ቁራጭ ×',
+  'product line': 'የምርት መስመር',
+  'factory stock and payable balance were updated. only the amount paid now was added to expenses and today’s transactions.': 'የፋብሪካ ክምችትና ተከፋይ ሂሳብ ዘምኗል። አሁን የተከፈለው መጠን ብቻ ወደ ወጪዎችና የዛሬ ግብይቶች ተጨምሯል።',
+  'the selected product does not belong to this factory.': 'የተመረጠው ምርት የዚህ ፋብሪካ አይደለም።',
+  'incoming payment': 'ገቢ ክፍያ',
+  'record money received against an owes me balance': 'ከሚከፈለኝ ሂሳብ ላይ የተቀበለ ገንዘብ ይመዝግቡ',
+  "payment reduces this customer's owes me balance.": 'ክፍያው የዚህን ደንበኛ የሚከፈለኝ ሂሳብ ይቀንሳል።',
+  'choose who made the payment': 'ክፍያውን የፈጸመውን ይምረጡ',
+  'select a customer': 'ደንበኛ ይምረጡ',
+  'amount received': 'የተቀበለ መጠን',
+  'payment date (yyyy-mm-dd)': 'የክፍያ ቀን (ዓዓዓዓ-ወወ-ቀቀ)',
+  'payment method': 'የክፍያ ዘዴ',
+  'cash': 'ጥሬ ገንዘብ',
+  'bank': 'ባንክ',
+  'mobile': 'ሞባይል',
+  'other': 'ሌላ',
+  'reference or reason': 'ማጣቀሻ ወይም ምክንያት',
+  'payment recorded': 'ክፍያው ተመዝግቧል',
+  'the customer balance and transaction history were updated.': 'የደንበኛው ሂሳብና የግብይት ታሪክ ዘምኗል።',
+  'this creates a permanent transaction and updates the customer balance.': 'ይህ ቋሚ ግብይት ይፈጥራል እና የደንበኛውን ሂሳብ ያዘምናል።',
+  'outgoing payment': 'ወጪ ክፍያ',
+  'record money paid to settle an i owe balance': 'የምከፍለውን ሂሳብ ለማወራረድ የተከፈለ ገንዘብ ይመዝግቡ',
+  '1. who did you pay?': '1. ለማን ከፈሉ?',
+  'only people or factories with an i owe balance are shown': 'የምከፍለው ሂሳብ ያላቸው ሰዎች ወይም ፋብሪካዎች ብቻ ይታያሉ',
+  'no people or factories currently have an i owe balance.': 'በአሁኑ ጊዜ የምከፍለው ሂሳብ ያለው ሰው ወይም ፋብሪካ የለም።',
+  'use full amount': 'ሙሉውን መጠን ተጠቀም',
+  '2. payment details': '2. የክፍያ ዝርዝር',
+  'enter how and when you paid': 'እንዴትና መቼ እንደከፈሉ ያስገቡ',
+  'amount sent': 'የተላከ መጠን',
+  'record payment sent': 'የተላከ ክፍያ መዝግብ',
+  "this reduces only the selected person's i owe balance.": 'ይህ የተመረጠውን ሰው የምከፍለው ሂሳብ ብቻ ይቀንሳል።',
+  'choose who you paid and enter an amount greater than zero.': 'የከፈሉትን ሰው ይምረጡ እና ከዜሮ በላይ መጠን ያስገቡ።',
+  'payment sent recorded': 'የተላከው ክፍያ ተመዝግቧል',
+  'the i owe balance, expense totals and today’s transactions were updated.': 'የምከፍለው ሂሳብ፣ የወጪ ድምሮች እና የዛሬ ግብይቶች ዘምነዋል።',
+
+  // Credit, expenses and budgets.
+  'manual ledger entry': 'በእጅ የሚገባ ሂሳብ',
+  'record a credit or loan without creating a sale': 'ሽያጭ ሳይፈጥሩ ብድር ይመዝግቡ',
+  "this entry will change this person's running balance.": 'ይህ ግቤት የዚህን ሰው ተንቀሳቃሽ ሂሳብ ይቀይራል።',
+  'direction': 'አቅጣጫ',
+  'choose whose balance increases': 'የማን ሂሳብ እንደሚጨምር ይምረጡ',
+  'customer owes me': 'ደንበኛው ይከፍለኛል',
+  'money owed to your store': 'ለመደብርዎ የሚከፈል ገንዘብ',
+  'i owe customer': 'ለደንበኛው እከፍላለሁ',
+  'money your store owes': 'መደብርዎ የሚከፍለው ገንዘብ',
+  'amount': 'መጠን',
+  'explain why this entry is being created': 'ይህ ግቤት ለምን እንደሚፈጠር ያብራሩ',
+  'this creates a permanent financial ledger entry and is included in reports.': 'ይህ ቋሚ የፋይናንስ ሂሳብ ግቤት ይፈጥራል እና በሪፖርቶች ውስጥ ይካተታል።',
+  'record credit / loan': 'ብድር መዝግብ',
+  'balance updated': 'ሂሳቡ ዘምኗል',
+  'a permanent ledger entry was added.': 'ቋሚ የሂሳብ ግቤት ተጨምሯል።',
+  'operating cost': 'የስራ ማስኬጃ ወጪ',
+  'operating costs': 'የስራ ማስኬጃ ወጪዎች',
+  'new expense': 'አዲስ ወጪ',
+  'expenses': 'ወጪዎች',
+  'posted expenses remain available in the audit history': 'የተመዘገቡ ወጪዎች በኦዲት ታሪክ ውስጥ ይቆያሉ',
+  'category': 'ምድብ',
+  'choose the most useful reporting category': 'ተስማሚውን የሪፖርት ምድብ ይምረጡ',
+  'new category': 'አዲስ ምድብ',
+  'category name': 'የምድብ ስም',
+  'expense details': 'የወጪ ዝርዝር',
+  'expense date (yyyy-mm-dd)': 'የወጪ ቀን (ዓዓዓዓ-ወወ-ቀቀ)',
+  'description': 'መግለጫ',
+  'what was this expense for?': 'ይህ ወጪ ለምን ነበር?',
+  'reference (optional)': 'ማጣቀሻ (አማራጭ)',
+  'receipt or invoice number': 'የደረሰኝ ቁጥር',
+  'record expense': 'ወጪ መዝግብ',
+  'recording an expense does not change sales or customer balances.': 'ወጪ መመዝገብ ሽያጭን ወይም የደንበኛ ሂሳብን አይቀይርም።',
+  'expense recorded': 'ወጪው ተመዝግቧል',
+  'the expense dashboard and reports are updated.': 'የወጪ ዳሽቦርድና ሪፖርቶች ዘምነዋል።',
+  'track expenses and cash paid to factories or people': 'ወጪዎችንና ለፋብሪካዎች ወይም ለሰዎች የተከፈለ ገንዘብ ይከታተሉ',
+  'analytics': 'ትንታኔ',
+  'month cash out': 'የወሩ ገንዘብ ወጪ',
+  'budget remaining': 'የቀረ በጀት',
+  'entries': 'ግቤቶች',
+  'monthly budget': 'የወር በጀት',
+  'spending by category': 'ወጪ በምድብ',
+  'this reporting period': 'ይህ የሪፖርት ጊዜ',
+  'recent expenses': 'የቅርብ ወጪዎች',
+  'ref:': 'ማጣቀሻ፦',
+  'reverse expense': 'ወጪውን ቀልብስ',
+  'reverse expense?': 'ወጪው ይቀለበስ?',
+  'the record stays in the audit history and is excluded from totals.': 'መዝገቡ በኦዲት ታሪክ ይቆያል ነገር ግን ከድምሩ ይወገዳል።',
+  'reversed from mobile app': 'ከሞባይል መተግበሪያ የተቀለበሰ',
+  'no expenses recorded for this store.': 'ለዚህ መደብር ምንም ወጪ አልተመዘገበም።',
+  'monthly expense budget saved.': 'የወር ወጪ በጀት ተቀምጧል።',
+  'expense reporting': 'የወጪ ሪፖርት',
+  'category and daily spending trends': 'የምድብና የዕለታዊ ወጪ አዝማሚያ',
+  'expense analytics': 'የወጪ ትንታኔ',
+  'reporting period': 'የሪፖርት ጊዜ',
+  'start': 'መጀመሪያ',
+  'end': 'መጨረሻ',
+  'apply period': 'ጊዜውን ተግብር',
+  'total expenses': 'ጠቅላላ ወጪ',
+  'by category': 'በምድብ',
+  'compare where the money went': 'ገንዘቡ የት እንደዋለ ያወዳድሩ',
+  'daily trend': 'ዕለታዊ አዝማሚያ',
+  'up to the last 31 days': 'እስከ መጨረሻዎቹ 31 ቀናት',
+
+  // Transactions, dashboard details and receipts.
+  'financial ledger': 'የፋይናንስ ሂሳብ',
+  'transactions': 'ግብይቶች',
+  'immutable sales, payments, credits and running balances': 'የማይቀየሩ ሽያጮች፣ ክፍያዎች፣ ብድሮችና ተንቀሳቃሽ ሂሳቦች',
+  'search customer, description or note': 'ደንበኛ፣ መግለጫ ወይም ማስታወሻ ፈልግ',
+  'adjustment': 'ማስተካከያ',
+  'paid in full': 'ሙሉ በሙሉ ተከፍሏል',
+  'paid · walk-in': 'ተከፍሏል · ያልተመዘገበ',
+  'debit · owes me': 'ዴቢት · የሚከፈለኝ',
+  'credit · payment': 'ክሬዲት · ክፍያ',
+  'sale receipt': 'የሽያጭ ደረሰኝ',
+  'purchase receipt': 'የግዢ ደረሰኝ',
+  'image': 'ምስል',
+  'no matching financial transactions.': 'ተዛማጅ የፋይናንስ ግብይት አልተገኘም።',
+  'receipt saved': 'ደረሰኙ ተቀምጧል',
+  'the png receipt image was saved in the folder you selected.': 'የPNG ደረሰኝ ምስሉ በመረጡት አቃፊ ውስጥ ተቀምጧል።',
+  'the png purchase receipt was saved in the folder you selected.': 'የPNG ግዢ ደረሰኙ በመረጡት አቃፊ ውስጥ ተቀምጧል።',
+  'no details are available.': 'ምንም ዝርዝር የለም።',
+  'dashboard details': 'የዳሽቦርድ ዝርዝሮች',
+  'offline: showing the most recently saved details.': 'ከመስመር ውጭ፦ በቅርብ የተቀመጡ ዝርዝሮች ታይተዋል።',
+  'total': 'ጠቅላላ',
+  'records': 'መዝገቦች',
+  'period:': 'ጊዜ፦',
+  'sales': 'ሽያጮች',
+  'collection sources': 'የገቢ ምንጮች',
+  'sales, payments and expenses': 'ሽያጮች፣ ክፍያዎችና ወጪዎች',
+  'expenses and payments sent': 'ወጪዎችና የተላኩ ክፍያዎች',
+  'customers owing the store': 'ለመደብሩ የሚከፍሉ ደንበኞች',
+  'people and factories to pay': 'የሚከፈላቸው ሰዎችና ፋብሪካዎች',
+  'collected at sale': 'በሽያጭ ጊዜ የተሰበሰበ',
+  'walk-in sale — no customer account': 'ያልተመዘገበ ደንበኛ ሽያጭ — የደንበኛ መለያ የለም',
+  'open customer profile and history': 'የደንበኛ መገለጫና ታሪክ ክፈት',
+  'purchase amount paid now': 'ለግዢው አሁን የተከፈለ',
+  'later payment received': 'በኋላ የተቀበለ ክፍያ',
+  'payment date:': 'የክፍያ ቀን፦',
+  'recorded': 'የተመዘገበ',
+  'balance after this payment:': 'ከዚህ ክፍያ በኋላ ቀሪ ሂሳብ፦',
+  'no records contribute to this dashboard card for the selected period.': 'በተመረጠው ጊዜ ለዚህ ዳሽቦርድ ካርድ የሚካተት መዝገብ የለም።',
+  'transaction document': 'የግብይት ሰነድ',
+  'bold image receipt with the store watermark': 'ግልጽ ፊደልና የመደብር ውኃ ምልክት ያለው የምስል ደረሰኝ',
+  'transaction receipt': 'የግብይት ደረሰኝ',
+  'download image': 'ምስል አውርድ',
+  'share image': 'ምስል አጋራ',
+  'share storeledger sale receipt': 'የStoreLedger የሽያጭ ደረሰኝ አጋራ',
+  'share storeledger purchase receipt': 'የStoreLedger የግዢ ደረሰኝ አጋራ',
+  'save storeledger sale receipt': 'የStoreLedger የሽያጭ ደረሰኝ አስቀምጥ',
+  'save storeledger purchase receipt': 'የStoreLedger የግዢ ደረሰኝ አስቀምጥ',
+  'the receipt is a png image, ready for whatsapp, telegram and other sharing apps.': 'ደረሰኙ ለWhatsApp፣ Telegram እና ሌሎች የማጋሪያ መተግበሪያዎች ዝግጁ የPNG ምስል ነው።',
+  'this receipt link is incomplete.': 'የደረሰኙ አገናኝ ያልተሟላ ነው።',
+  'receipt storage is unavailable on this device.': 'በዚህ መሣሪያ ላይ የደረሰኝ ማከማቻ አይገኝም።',
+  'sharing is unavailable on this device.': 'በዚህ መሣሪያ ላይ ማጋራት አይገኝም።',
+  'saving is unavailable on this device.': 'በዚህ መሣሪያ ላይ ማስቀመጥ አይገኝም።',
+  '· image': '· ምስል',
+  '· recorded': '· ተመዝግቧል',
+  '· by': '· በ',
+  'note:': 'ማስታወሻ፦',
+  'notes:': 'ማስታወሻዎች፦',
+  'outstanding:': 'ቀሪ ዕዳ፦',
+  'paid:': 'የተከፈለ፦',
+  'purchase #': 'ግዢ #',
+  'recorded by:': 'የመዘገበው፦',
+  'reference:': 'ማጣቀሻ፦',
+  'open profile and transaction history ›': 'መገለጫና የግብይት ታሪክ ክፈት ›',
+  'units ×': 'ዩኒቶች ×',
+  'pcs × actual price': 'ቁራጭ × ትክክለኛ ዋጋ',
+  'total pieces': 'ጠቅላላ ቁራጮች',
+
+  // Search, notifications and overdue balances.
+  'search everything': 'ሁሉንም ፈልግ',
+  'products, people and records': 'ምርቶች፣ ሰዎችና መዝገቦች',
+  'global search': 'አጠቃላይ ፍለጋ',
+  'products, people, sales, purchases, expenses and references': 'ምርቶች፣ ሰዎች፣ ሽያጮች፣ ግዢዎች፣ ወጪዎችና ማጣቀሻዎች',
+  'people & companies': 'ሰዎች እና ድርጅቶች',
+  'no matching records in this store.': 'በዚህ መደብር ውስጥ ተዛማጅ መዝገብ አልተገኘም።',
+  'results for “': 'የፍለጋ ውጤቶች ለ“',
+  'name, factory, phone, reference or note': 'ስም፣ ፋብሪካ፣ ስልክ፣ ማጣቀሻ ወይም ማስታወሻ',
+  'enter at least two characters to search across the store.': 'በመደብሩ ውስጥ ለመፈለግ ቢያንስ ሁለት ፊደሎችን ያስገቡ።',
+  'no matching products, people or financial records.': 'ተዛማጅ ምርት፣ ሰው ወይም የፋይናንስ መዝገብ አልተገኘም።',
+  'payments': 'ክፍያዎች',
+  'notifications': 'ማሳወቂያዎች',
+  'store activity': 'የመደብር እንቅስቃሴ',
+  'stock, balances, payments and generated reports': 'ክምችት፣ ሂሳቦች፣ ክፍያዎችና የተዘጋጁ ሪፖርቶች',
+  'tap an unread notification to mark it as read.': 'ያልተነበበ ማሳወቂያ እንደተነበበ ለመመዝገብ ይንኩት።',
+  'active': 'ንቁ',
+  'read': 'የተነበበ',
+  'no active notifications.': 'ንቁ ማሳወቂያ የለም።',
+  'unread notification': 'ያልተነበበ ማሳወቂያ',
+  'communication audit': 'የግንኙነት ኦዲት',
+  'debt reminder delivery attempts and results': 'የዕዳ ማስታወሻ መላኪያ ሙከራዎችና ውጤቶች',
+  'sms logs': 'የSMS መዝገቦች',
+  'sent': 'ተልኳል',
+  'failed': 'አልተሳካም',
+  'pending': 'በመጠባበቅ ላይ',
+  'reminder': 'ማስታወሻ',
+  '· reminder': '· ማስታወሻ',
+  'no sms reminders have been attempted yet.': 'እስካሁን የSMS ማስታወሻ ለመላክ ሙከራ አልተደረገም።',
+  'receivables': 'ተሰብሳቢ ሂሳቦች',
+  'overdue receivables': 'የዘገዩ ተሰብሳቢ ሂሳቦች',
+  'total overdue': 'ጠቅላላ የዘገየ',
+  'customers': 'ደንበኞች',
+  'top overdue balances': 'ከፍተኛ የዘገዩ ሂሳቦች',
+  'highest open receivables': 'ከፍተኛ ክፍት ተሰብሳቢ ሂሳቦች',
+  'sorted by overdue age': 'በዘገየበት ጊዜ ተደርድሯል',
+  'days overdue · since': 'ቀናት ዘግይቷል · ከ',
+  'no balances have passed the configured overdue threshold.': 'የተወሰነውን የመዘግየት ገደብ ያለፈ ሂሳብ የለም።',
+
+  // Reports and export.
+  'business intelligence': 'የንግድ ትንታኔ',
+  'reports': 'ሪፖርቶች',
+  'generate, inspect, download and share historical reports': 'የታሪክ ሪፖርቶችን ያመንጩ፣ ይመልከቱ፣ ያውርዱ እና ያጋሩ',
+  'generate new report': 'አዲስ ሪፖርት አመንጭ',
+  'choose a period and create a permanent version': 'ጊዜ ይምረጡ እና ቋሚ ቅጂ ይፍጠሩ',
+  'daily': 'ዕለታዊ',
+  'weekly': 'ሳምንታዊ',
+  'monthly': 'ወርሃዊ',
+  'custom': 'ብጁ',
+  'start date': 'መጀመሪያ ቀን',
+  'end date': 'መጨረሻ ቀን',
+  'historical reports': 'የታሪክ ሪፖርቶች',
+  'search by type or date': 'በአይነት ወይም ቀን ፈልግ',
+  'report': 'ሪፖርት',
+  'ready': 'ዝግጁ',
+  'processing': 'በመዘጋጀት ላይ',
+  'version': 'ቅጂ',
+  '· version': '· ቅጂ',
+  'pdf': 'PDF',
+  'excel': 'Excel',
+  'the file is being prepared. return shortly to download it.': 'ፋይሉ እየተዘጋጀ ነው። ለማውረድ ትንሽ ቆይተው ይመለሱ።',
+  'no matching historical reports.': 'ተዛማጅ የታሪክ ሪፖርት አልተገኘም።',
+  'generated report': 'የተዘጋጀ ሪፖርት',
+  'period': 'ጊዜ',
+  'date': 'ቀን',
+  'financial position': 'የፋይናንስ ሁኔታ',
+  'customer receivables': 'ከደንበኞች የሚሰበሰብ',
+  'payments sent': 'የተላኩ ክፍያዎች',
+  'category id': 'የምድብ መለያ',
+  'count': 'ብዛት',
+  'total products sold': 'ጠቅላላ የተሸጡ ምርቶች',
+  'stock received products': 'ክምችት የተቀበሉ ምርቶች',
+  'product id': 'የምርት መለያ',
+  'name': 'ስም',
+  'quantity': 'ብዛት',
+  'low stock occurrences': 'የዝቅተኛ ክምችት ክስተቶች',
+  'products reached low stock': 'ዝቅተኛ ክምችት ላይ የደረሱ ምርቶች',
+  'frequently reaching low stock': 'ብዙ ጊዜ ዝቅተኛ ክምችት ላይ የሚደርሱ',
+  'low stock count': 'ዝቅተኛ ክምችት ብዛት',
+  'best selling products': 'ከፍተኛ ሽያጭ ያላቸው ምርቶች',
+  'purchase price': 'የግዢ ዋጋ',
+  'selling price': 'የመሸጫ ዋጋ',
+  'is low stock': 'ክምችት ዝቅተኛ ነው',
+  'party id': 'የሰው/ድርጅት መለያ',
+  'report details': 'የሪፖርት ዝርዝር',
+  'data ownership': 'የመረጃ ባለቤትነት',
+  'export & backup': 'ውሂብ ላክ እና ምትኬ',
+  'owner-controlled portable copies of your store data': 'በባለቤቱ የሚቆጣጠሩ የመደብር መረጃ ቅጂዎች',
+  'csv export': 'የCSV ውሂብ ማውጫ',
+  'choose one dataset for spreadsheet analysis': 'ለሰንጠረዥ ትንታኔ አንድ የመረጃ ስብስብ ይምረጡ',
+  'download csv': 'CSV አውርድ',
+  'full json backup': 'ሙሉ የJSON ምትኬ',
+  'a complete, store-scoped portable copy': 'ሙሉ እና ለመደብሩ ብቻ የተገደበ ተንቀሳቃሽ ቅጂ',
+  'includes master data, ledgers, stock movements, expenses, purchases, reports, notifications, sms logs and audit events. passwords are never included.': 'ዋና መረጃ፣ ሂሳቦች፣ የክምችት እንቅስቃሴ፣ ወጪዎች፣ ግዢዎች፣ ሪፖርቶች፣ ማሳወቂያዎች፣ የSMS መዝገቦችና የኦዲት ክስተቶች ይካተታሉ። የይለፍ ቃሎች ፈጽሞ አይካተቱም።',
+  'download full backup': 'ሙሉ ምትኬ አውርድ',
+  'restore is deliberately not automatic. a backup should only be imported through a validated migration to prevent duplicate financial postings.': 'መመለስ ሆን ተብሎ ራስ-ሰር አልተደረገም። የተባዙ የፋይናንስ መዝገቦችን ለመከላከል ምትኬ በተረጋገጠ የማዛወር ሂደት ብቻ መግባት አለበት።',
+  'export saved': 'ውሂቡ ተቀምጧል',
+  'downloaded': 'ወርዷል',
+
+  // Settings and More.
+  'finance': 'ፋይናንስ',
+  'operations': 'ስራዎች',
+  'administration': 'አስተዳደር',
+  'finance, operations and store administration': 'ፋይናንስ፣ ስራዎች እና የመደብር አስተዳደር',
+  'complete financial ledger': 'ሙሉ የፋይናንስ ሂሳብ',
+  'expenses & budget': 'ወጪዎች እና በጀት',
+  'costs, categories and budget': 'ወጪዎች፣ ምድቦችና በጀት',
+  'factory purchases and payables': 'የፋብሪካ ግዢዎችና ተከፋይ ሂሳቦች',
+  'settle an i owe balance': 'የምከፍለውን ሂሳብ አወራርድ',
+  'balances that need attention': 'ትኩረት የሚፈልጉ ሂሳቦች',
+  'generate and download reports': 'ሪፖርቶችን አመንጭ እና አውርድ',
+  'stock, debt and report alerts': 'የክምችት፣ የዕዳና የሪፖርት ማሳወቂያዎች',
+  'reminder delivery history': 'የማስታወሻ መላኪያ ታሪክ',
+  'portable copies of store data': 'ተንቀሳቃሽ የመደብር መረጃ ቅጂዎች',
+  'settings': 'ቅንብሮች',
+  'store rules and automations': 'የመደብር ደንቦችና ራስ-ሰር ስራዎች',
+  'store user': 'የመደብር ተጠቃሚ',
+  'user': 'ተጠቃሚ',
+  'store details, business rules and scheduled automations': 'የመደብር ዝርዝሮች፣ የንግድ ደንቦችና የታቀዱ ራስ-ሰር ስራዎች',
+  'account': 'መለያ',
+  'store details': 'የመደብር ዝርዝር',
+  'identity and contact information': 'መለያና የእውቂያ መረጃ',
+  'store name': 'የመደብር ስም',
+  'account number': 'የመለያ ቁጥር',
+  'currency': 'ምንዛሬ',
+  'timezone': 'የሰዓት ሰቅ',
+  'inventory & aging': 'ክምችት እና የጊዜ ገደብ',
+  'stock protection and overdue rules': 'የክምችት ጥበቃና የመዘግየት ደንቦች',
+  'default low-stock threshold': 'ነባሪ የዝቅተኛ ክምችት ገደብ',
+  'overdue after days': 'የመዘግየት ቀን ገደብ',
+  'prevent negative inventory': 'ክምችት ከዜሮ በታች እንዳይሆን',
+  'block sales that exceed available stock': 'ካለው ክምችት በላይ ሽያጭን ከልክል',
+  'sms reminders': 'የSMS ማስታወሻዎች',
+  'automated debt reminders to customers': 'ለደንበኞች ራስ-ሰር የዕዳ ማስታወሻ',
+  'enable daily sms': 'ዕለታዊ SMS አንቃ',
+  'send reminders at the configured time': 'በተወሰነው ሰዓት ማስታወሻ ላክ',
+  'reminder time (hh:mm:ss)': 'የማስታወሻ ሰዓት (ሰሰ:ደደ:ሰሰ)',
+  'provider': 'አቅራቢ',
+  'console test': 'የኮንሶል ሙከራ',
+  'http provider': 'HTTP አቅራቢ',
+  'payment account number': 'የክፍያ መለያ ቁጥር',
+  'console test mode records the full sms workflow without charging or contacting customers.': 'የኮንሶል ሙከራ ሁነታ ደንበኞችን ሳያስከፍል ወይም ሳያገኝ ሙሉውን የSMS ሂደት ይመዘግባል።',
+  'send debt reminders now': 'የዕዳ ማስታወሻዎችን አሁን ላክ',
+  'automated reports': 'ራስ-ሰር ሪፖርቶች',
+  'daily, weekly and monthly report schedules': 'ዕለታዊ፣ ሳምንታዊና ወርሃዊ የሪፖርት መርሃ ግብሮች',
+  'generate reports on the schedule below': 'በሚከተለው መርሃ ግብር ሪፖርቶችን አመንጭ',
+  'daily report time': 'የዕለታዊ ሪፖርት ሰዓት',
+  'weekly report day': 'የሳምንታዊ ሪፖርት ቀን',
+  'weekly report time': 'የሳምንታዊ ሪፖርት ሰዓት',
+  'monthly report time': 'የወርሃዊ ሪፖርት ሰዓት',
+  'daily now': 'ዕለታዊ አሁን',
+  'weekly now': 'ሳምንታዊ አሁን',
+  'monthly now': 'ወርሃዊ አሁን',
+  'save settings': 'ቅንብሮችን አስቀምጥ',
+  'settings saved.': 'ቅንብሮቹ ተቀምጠዋል።',
+  'monday': 'ሰኞ',
+  'tuesday': 'ማክሰኞ',
+  'wednesday': 'ረቡዕ',
+  'thursday': 'ሐሙስ',
+  'friday': 'ዓርብ',
+  'saturday': 'ቅዳሜ',
+  'sunday': 'እሁድ',
+  'mon': 'ሰኞ',
+  'tue': 'ማክ',
+  'wed': 'ረቡ',
+  'thu': 'ሐሙ',
+  'fri': 'ዓር',
+  'sat': 'ቅዳ',
+  'sun': 'እሁ',
+
+  // Server-generated dashboard/report vocabulary and common errors.
+  'collected today': 'ዛሬ የተሰበሰበ',
+  "this month's expenses": 'የዚህ ወር ወጪዎች',
+  'every completed sale recorded today, including customer, products, payment and outstanding amount.': 'ዛሬ የተመዘገቡ ሁሉም የተጠናቀቁ ሽያጮች፣ ደንበኛ፣ ምርቶች፣ ክፍያና ቀሪ ዕዳን ጨምሮ።',
+  "money collected with today's sales plus later customer payments received today.": 'ከዛሬ ሽያጭ የተሰበሰበ ገንዘብ እና ዛሬ የተቀበሉ የቀድሞ ዕዳ ክፍያዎች።',
+  'all active customers who currently owe the store.': 'በአሁኑ ጊዜ ለመደብሩ ዕዳ ያለባቸው ሁሉም ንቁ ደንበኞች።',
+  'all active people or factories the store currently owes.': 'መደብሩ በአሁኑ ጊዜ ዕዳ ያለበት ሁሉም ንቁ ሰዎች ወይም ፋብሪካዎች።',
+  "every active expense and outgoing payment dated today, including purchase amounts paid now.": 'የዛሬ ቀን ያላቸው ሁሉም ንቁ ወጪዎችና የወጪ ክፍያዎች፣ አሁን የተከፈለ የግዢ መጠንን ጨምሮ።',
+  'every active expense and outgoing payment in the current store month.': 'በአሁኑ የመደብር ወር ውስጥ ያሉ ሁሉም ንቁ ወጪዎችና የወጪ ክፍያዎች።',
+  "completed sales, payments, purchase amounts paid now and active expenses counted on today's dashboard.": 'በዛሬው ዳሽቦርድ ውስጥ የተቆጠሩ የተጠናቀቁ ሽያጮች፣ ክፍያዎች፣ አሁን የተከፈሉ የግዢ መጠኖችና ንቁ ወጪዎች።',
+  'total sales': 'ጠቅላላ ሽያጭ',
+  'transaction count': 'የግብይት ብዛት',
+  'debt payments received': 'የተቀበሉ የዕዳ ክፍያዎች',
+  'total collected': 'ጠቅላላ የተሰበሰበ',
+  'credit generated': 'የተፈጠረ ዕዳ',
+  'outstanding generated': 'የተፈጠረ ቀሪ ዕዳ',
+  'cost of goods sold': 'የተሸጡ እቃዎች ወጪ',
+  'gross profit': 'ጠቅላላ ትርፍ',
+  'average daily sales': 'አማካይ ዕለታዊ ሽያጭ',
+  'best sales day': 'ከፍተኛ የሽያጭ ቀን',
+  'lowest sales day': 'ዝቅተኛ የሽያጭ ቀን',
+  'daily breakdown': 'ዕለታዊ ዝርዝር',
+  'products sold': 'የተሸጡ ምርቶች',
+  'lowest selling products': 'ዝቅተኛ ሽያጭ ያላቸው ምርቶች',
+  'purchase summary': 'የግዢ ማጠቃለያ',
+  'expense categories': 'የወጪ ምድቦች',
+  'current inventory': 'የአሁኑ ክምችት',
+  'stock received': 'የተቀበለ ክምችት',
+  'inventory movements': 'የክምችት እንቅስቃሴዎች',
+  'trader summary': 'የነጋዴ ማጠቃለያ',
+  'agent summary': 'የወኪል ማጠቃለያ',
+  'payments received': 'የተቀበሉ ክፍያዎች',
+  'new outstanding': 'አዲስ ቀሪ ዕዳ',
+  'outstanding': 'ቀሪ ዕዳ',
+  'customers owing count': 'ዕዳ ያለባቸው ደንበኞች ብዛት',
+  'store owes': 'መደብሩ የሚከፍለው',
+  'store payables count': 'የመደብር ተከፋይ ሂሳቦች ብዛት',
+  'top by sales': 'ከፍተኛ በሽያጭ',
+  'top by outstanding': 'ከፍተኛ በቀሪ ዕዳ',
+  'date time': 'ቀንና ሰዓት',
+  'party name': 'የሰው/ድርጅት ስም',
+  'transaction type': 'የግብይት አይነት',
+  'credit debit': 'ክሬዲት / ዴቢት',
+  'running balance': 'ተንቀሳቃሽ ሂሳብ',
+  'something went wrong. please try again.': 'ችግር ተፈጥሯል። እንደገና ይሞክሩ።',
+  'bar chart': 'የአሞሌ ገበታ',
+  'no data for this period.': 'ለዚህ ጊዜ መረጃ የለም።',
+  'close factory list': 'የፋብሪካዎችን ዝርዝር ዝጋ',
+  'no stock movements have been recorded for this product.': 'ለዚህ ምርት ምንም የክምችት እንቅስቃሴ አልተመዘገበም።',
+  'the request could not be completed.': 'ጥያቄውን ማጠናቀቅ አልተቻለም።',
+  'this field is required.': 'ይህ መስክ ያስፈልጋል።',
+  'a valid number is required.': 'ትክክለኛ ቁጥር ያስፈልጋል።',
+  'not found.': 'አልተገኘም።',
+  'network request failed': 'የኔትወርክ ጥያቄው አልተሳካም። የኢንተርኔት ግንኙነትዎን ያረጋግጡ።',
+  'the server returned a web page instead of storeledger api data. check the api url and reverse-proxy routing.': 'ሰርቨሩ ከStoreLedger API መረጃ ይልቅ የድር ገጽ መልሷል። የAPI አድራሻንና የreverse-proxy መስመርን ያረጋግጡ።',
+  'settle this balance before archiving the record.': 'መዝገቡን ከማስቀመጥዎ በፊት ቀሪ ሂሳቡን ያወራርዱ።',
+  "archive or move this factory's active products before archiving the factory.": 'ፋብሪካውን ከማስመዝገብዎ በፊት ንቁ ምርቶቹን ያስመዝግቡ ወይም ያዛውሩ።',
+  'you do not have access to this store.': 'ይህን መደብር የመጠቀም ፈቃድ የለዎትም።',
+  'your role cannot perform this operation.': 'የእርስዎ ሚና ይህን ተግባር መፈጸም አይችልም።',
+  'product does not belong to this store.': 'ምርቱ የዚህ መደብር አይደለም።',
+  'at least one product is required.': 'ቢያንስ አንድ ምርት ያስፈልጋል።',
+  'customer was not found in this store.': 'ደንበኛው በዚህ መደብር ውስጥ አልተገኘም።',
+  'factories are purchase suppliers and cannot be sale customers.': 'ፋብሪካዎች የግዢ አቅራቢዎች ናቸው፤ የሽያጭ ደንበኞች ሊሆኑ አይችሉም።',
+  'a product may only appear once in a sale.': 'አንድ ምርት በሽያጭ ውስጥ አንድ ጊዜ ብቻ ሊገባ ይችላል።',
+  'every quantity must be greater than zero.': 'እያንዳንዱ ብዛት ከዜሮ በላይ መሆን አለበት።',
+  'unit price cannot be negative.': 'የዩኒት ዋጋ ከዜሮ በታች ሊሆን አይችልም።',
+  'amount paid cannot be negative.': 'የተከፈለው መጠን ከዜሮ በታች ሊሆን አይችልም።',
+  'payment must be greater than zero.': 'ክፍያው ከዜሮ በላይ መሆን አለበት።',
+  'amount must be greater than zero.': 'መጠኑ ከዜሮ በላይ መሆን አለበት።',
+  'use received or sent.': 'የተቀበለ ወይም የተላከ ይጠቀሙ።',
+  'this party does not currently have an i owe balance.': 'ይህ ሰው በአሁኑ ጊዜ የምከፍለው ሂሳብ የለውም።',
+  'use owes_me or i_owe.': 'owes_me ወይም i_owe ይጠቀሙ።',
+  'expense category was not found in this store.': 'የወጪ ምድቡ በዚህ መደብር ውስጥ አልተገኘም።',
+  'expense amount must be greater than zero.': 'የወጪው መጠን ከዜሮ በላይ መሆን አለበት።',
+  'factory was not found in this store.': 'ፋብሪካው በዚህ መደብር ውስጥ አልተገኘም።',
+  'choose a factory as the purchase supplier.': 'የግዢ አቅራቢ እንዲሆን ፋብሪካ ይምረጡ።',
+  'a product may only appear once in a purchase.': 'አንድ ምርት በግዢ ውስጥ አንድ ጊዜ ብቻ ሊገባ ይችላል።',
+  'unit cost cannot be negative.': 'የዩኒት ወጪ ከዜሮ በታች ሊሆን አይችልም።',
+  'amount paid must be between zero and the purchase total.': 'የተከፈለው መጠን በዜሮና በጠቅላላ ግዢው መካከል መሆን አለበት።',
+  'factory does not belong to this store.': 'ፋብሪካው የዚህ መደብር አይደለም።',
+  'choose an active factory.': 'ንቁ ፋብሪካ ይምረጡ።',
+  'a product with this name already exists for the selected factory.': 'በተመረጠው ፋብሪካ ውስጥ ይህ ስም ያለው ምርት አስቀድሞ አለ።',
+  'a trader, agent or factory type cannot be changed after creation.': 'ከተፈጠረ በኋላ የነጋዴ፣ ወኪል ወይም ፋብሪካ አይነት መቀየር አይቻልም።',
+  'phone number is required for traders and agents.': 'ለነጋዴዎችና ወኪሎች ስልክ ቁጥር ያስፈልጋል።',
+  'a factory with this name already exists.': 'ይህ ስም ያለው ፋብሪካ አስቀድሞ አለ።',
+  'this field may not be blank.': 'ይህ መስክ ባዶ ሊሆን አይችልም።',
+  'this field may not be null.': 'ይህ መስክ ባዶ ሊሆን አይችልም።',
+  'enter a valid iana timezone, such as africa/addis_ababa.': 'እንደ Africa/Addis_Ababa ያለ ትክክለኛ የIANA ሰዓት ሰቅ ያስገቡ።',
+  'authentication credentials were not provided.': 'የመግቢያ መረጃ አልቀረበም።',
+  'no active account found with the given credentials': 'በቀረበው መረጃ ንቁ መለያ አልተገኘም።',
+  'export failed.': 'መረጃውን ማውጣት አልተሳካም።',
+  'download failed.': 'ማውረድ አልተሳካም።',
+  'file is not ready.': 'ፋይሉ ገና ዝግጁ አይደለም።',
+  'this dashboard detail type is not supported.': 'ይህ የዳሽቦርድ ዝርዝር አይነት አይደገፍም።',
+};
+
+const normalize = (value: string) => value.trim().replace(/[’]/g, "'").replace(/\s+/g, ' ').toLowerCase();
+
+function dynamicAmharic(value: string): string | null {
+  let match: RegExpMatchArray | null;
+  if ((match = value.match(/^page (\d+) of (\d+)$/i))) return `ገጽ ${match[1]} ከ ${match[2]}`;
+  if ((match = value.match(/^storeledger mobile · version (.+)$/i))) return `StoreLedger Mobile · ቅጂ ${match[1]}`;
+  if ((match = value.match(/^(\d[\d,.]*) active products?$/i))) return `${match[1]} ንቁ ምርቶች`;
+  if ((match = value.match(/^(\d[\d,.]*) products?$/i))) return `${match[1]} ምርቶች`;
+  if ((match = value.match(/^(\d[\d,.]*) units? available$/i))) return `${match[1]} ዩኒት ይገኛል`;
+  if ((match = value.match(/^(\d[\d,.]*) units? across (\d[\d,.]*) products?$/i))) return `${match[2]} ምርቶች ላይ ${match[1]} ዩኒቶች`;
+  if ((match = value.match(/^(\d[\d,.]*) selected product lines?$/i))) return `${match[1]} የተመረጡ የምርት መስመሮች`;
+  if ((match = value.match(/^(\d[\d,.]*) product lines?$/i))) return `${match[1]} የምርት መስመሮች`;
+  if ((match = value.match(/^(\d[\d,.]*) matching reports?$/i))) return `${match[1]} ተዛማጅ ሪፖርቶች`;
+  if ((match = value.match(/^(\d[\d,.]*) active entr(?:y|ies)$/i))) return `${match[1]} ንቁ ግቤቶች`;
+  if ((match = value.match(/^(\d[\d,.]*) ledger entr(?:y|ies)$/i))) return `${match[1]} የሂሳብ ግቤቶች`;
+  if ((match = value.match(/^(\d[\d,.]*) unread notifications?$/i))) return `${match[1]} ያልተነበቡ ማሳወቂያዎች`;
+  if ((match = value.match(/^overdue (\d+)\+ days$/i))) return `${match[1]}+ ቀናት የዘገዩ`;
+  if ((match = value.match(/^(\d[\d,.]*) days overdue · since (.+)$/i))) return `${match[1]} ቀናት ዘግይቷል · ከ ${match[2]}`;
+  if ((match = value.match(/^balances open for at least (\d+) days$/i))) return `ቢያንስ ${match[1]} ቀናት ክፍት የቆዩ ሂሳቦች`;
+  if ((match = value.match(/^search (trader|agent|factory) name or phone$/i))) return `${localizeText(match[1], 'am')} ስም ወይም ስልክ ፈልግ`;
+  if ((match = value.match(/^remove one unit of (.+)$/i))) return `ከ${match[1]} አንድ ዩኒት ቀንስ`;
+  if ((match = value.match(/^add one unit of (.+)$/i))) return `ወደ ${match[1]} አንድ ዩኒት ጨምር`;
+  if ((match = value.match(/^enter units for (.+)$/i))) return `ለ${match[1]} ዩኒቶችን ያስገቡ`;
+  if ((match = value.match(/^remove (.+)$/i))) return `${match[1]} አስወግድ`;
+  if ((match = value.match(/^open (.+) profile$/i))) return `የ${match[1]}ን መገለጫ ክፈት`;
+  if ((match = value.match(/^(.+)\. open details\.$/i))) return `${localizeText(match[1], 'am')}። ዝርዝር ክፈት።`;
+  if ((match = value.match(/^(sale|purchase) receipt image$/i))) return `የ${localizeText(match[1], 'am')} ደረሰኝ ምስል`;
+  if ((match = value.match(/^no (traders|agents|factories) found$/i))) return `${localizeText(match[1], 'am')} አልተገኙም`;
+  if ((match = value.match(/^add the first (trader|agent|factory) or try another search\.$/i))) return `የመጀመሪያውን ${localizeText(match[1], 'am')} ያክሉ ወይም ሌላ ፍለጋ ይሞክሩ።`;
+  if ((match = value.match(/^add (trader|agent|factory)$/i))) return `${localizeText(match[1], 'am')} ጨምር`;
+  if ((match = value.match(/^new (trader|agent|factory)$/i))) return `አዲስ ${localizeText(match[1], 'am')}`;
+  if ((match = value.match(/^save (trader|agent|factory)$/i))) return `${localizeText(match[1], 'am')} አስቀምጥ`;
+  if ((match = value.match(/^edit (trader|agent|factory)$/i))) return `${localizeText(match[1], 'am')} አርትዕ`;
+  if ((match = value.match(/^(trader|agent|factory) profile$/i))) return `የ${localizeText(match[1], 'am')} መገለጫ`;
+  if ((match = value.match(/^archive (trader|agent|factory)\?$/i))) return `${localizeText(match[1], 'am')} ይመዝገብ?`;
+  if ((match = value.match(/^archive this (trader|agent|factory)$/i))) return `ይህን ${localizeText(match[1], 'am')} መዝግብ`;
+  if ((match = value.match(/^create a new (trader|agent) profile and financial ledger$/i))) return `አዲስ የ${localizeText(match[1], 'am')} መገለጫና የፋይናንስ ሂሳብ ይፍጠሩ`;
+  if ((match = value.match(/^you entered ([\d,.]+) units, but only ([\d,.]+) are in stock\. enter ([\d,.]+) or less\.$/i))) return `${match[1]} ዩኒት አስገብተዋል፣ ነገር ግን ${match[2]} ዩኒት ብቻ በክምችት አለ። ${match[3]} ወይም ከዚያ በታች ያስገቡ።`;
+  if ((match = value.match(/^enter numbers only, from 0 to ([\d,.]+) units\.$/i))) return `ከ0 እስከ ${match[1]} ዩኒት ያለ ቁጥር ብቻ ያስገቡ።`;
+  if ((match = value.match(/^only ([\d,.]+) units of (.+) are available\.$/i))) return `የ${match[2]} ${match[1]} ዩኒት ብቻ ይገኛል።`;
+  if ((match = value.match(/^payment cannot exceed the current i owe balance of ([\d,.]+) etb\.$/i))) return `ክፍያው ከአሁኑ የምከፍለው ሂሳብ ${match[1]} ብር መብለጥ አይችልም።`;
+  if ((match = value.match(/^insufficient stock\. available: ([\d,.]+)\.$/i))) return `በቂ ክምችት የለም። ያለው፦ ${match[1]}።`;
+  if ((match = value.match(/^product (.+) was not found\.$/i))) return `ምርት ${match[1]} አልተገኘም።`;
+  if ((match = value.match(/^payment sent cannot exceed the i owe balance of ([\d,.]+)\.$/i))) return `የተላከው ክፍያ ከምከፍለው ሂሳብ ${match[1]} መብለጥ አይችልም።`;
+  if ((match = value.match(/^(.+) belongs to (.+), not (.+)\.$/i))) return `${match[1]} የ${match[2]} ነው፣ የ${match[3]} አይደለም።`;
+  if ((match = value.match(/^(.+) — ([\d,.]+) (.+) remaining$/i))) return `${match[1]} — ${match[2]} ${match[3]} ቀርቷል`;
+  if ((match = value.match(/^(daily|weekly|monthly|custom) report ready$/i))) return `${localizeText(match[1], 'am')} ሪፖርት ዝግጁ ነው`;
+  if ((match = value.match(/^report for (.+) to (.+) is ready\.$/i))) return `ከ${match[1]} እስከ ${match[2]} ያለው ሪፖርት ዝግጁ ነው።`;
+  if ((match = value.match(/^receipt download failed with status (\d+)\.$/i))) return `ደረሰኙን ማውረድ አልተሳካም፤ ሁኔታ ${match[1]}።`;
+  if ((match = value.match(/^(daily|weekly|monthly) report generated successfully\.$/i))) return `${localizeText(match[1], 'am')} ሪፖርት በተሳካ ሁኔታ ተዘጋጅቷል።`;
+  if ((match = value.match(/^generate (daily|weekly|monthly|custom) report$/i))) return `${localizeText(match[1], 'am')} ሪፖርት አመንጭ`;
+  if ((match = value.match(/^(.+) is ready\.$/i))) return `${match[1]} ዝግጁ ነው።`;
+  if ((match = value.match(/^sale ([a-f0-9-]+)$/i))) return `ሽያጭ ${match[1]}`;
+  if ((match = value.match(/^walk-in sale ([a-f0-9-]+)$/i))) return `ያልተመዘገበ ደንበኛ ሽያጭ ${match[1]}`;
+  if ((match = value.match(/^purchase ([a-f0-9-]+)$/i))) return `ግዢ ${match[1]}`;
+  if ((match = value.match(/^payment with sale ([a-f0-9-]+)$/i))) return `ከሽያጭ ${match[1]} ጋር ክፍያ`;
+  if ((match = value.match(/^payment with purchase ([a-f0-9-]+)$/i))) return `ከግዢ ${match[1]} ጋር ክፍያ`;
+  return null;
+}
+
+export function localizeText(value: string, language: Language = activeLanguage): string {
+  if (language === 'en' || !value || !/[A-Za-z]/.test(value)) return value;
+  const leading = value.match(/^\s*/)?.[0] || '';
+  const trailing = value.match(/\s*$/)?.[0] || '';
+  const end = trailing.length ? value.length - trailing.length : value.length;
+  const core = value.slice(leading.length, end);
+  const translated = amharic[normalize(core)] || dynamicAmharic(core);
+  return translated ? `${leading}${translated}${trailing}` : value;
+}
+
+type I18nValue = {
+  language: Language;
+  locale: 'am-ET' | 'en-US';
+  setLanguage: (language: Language) => void;
+  toggleLanguage: () => void;
+  t: (value: string) => string;
+};
+
+const I18nContext = createContext<I18nValue | null>(null);
+
+export function I18nProvider({ children }: { children: React.ReactNode }) {
+  const [language, setLanguageState] = useState<Language>('am');
+
+  useEffect(() => {
+    let active = true;
+    void secureGet(LANGUAGE_KEY).then(value => {
+      const stored = value === 'en' ? 'en' : 'am';
+      if (active) {
+        activeLanguage = stored;
+        setLanguageState(stored);
+      }
+    });
+    return () => { active = false; };
+  }, []);
+
+  const setLanguage = (nextLanguage: Language) => {
+    activeLanguage = nextLanguage;
+    setLanguageState(nextLanguage);
+    void secureSet(LANGUAGE_KEY, nextLanguage);
+  };
+
+  const value = useMemo<I18nValue>(() => ({
+    language,
+    locale: language === 'am' ? 'am-ET' : 'en-US',
+    setLanguage,
+    toggleLanguage: () => setLanguage(language === 'am' ? 'en' : 'am'),
+    t: text => localizeText(text, language),
+  }), [language]);
+
+  return <I18nContext.Provider value={value}>{children}</I18nContext.Provider>;
+}
+
+export function useI18n() {
+  const value = useContext(I18nContext);
+  if (!value) throw new Error('useI18n must be used inside I18nProvider.');
+  return value;
+}
+
+export async function getStoredLanguage(): Promise<Language> {
+  const value = await secureGet(LANGUAGE_KEY);
+  return value === 'en' ? 'en' : 'am';
+}
+
+function localizeChildren(children: React.ReactNode, language: Language): React.ReactNode {
+  return React.Children.map(children, child => typeof child === 'string' ? localizeText(child, language) : child);
+}
+
+export function Text({ children, ...props }: TextProps) {
+  const { language } = useI18n();
+  return <NativeText {...props}>{localizeChildren(children, language)}</NativeText>;
+}
+
+export function LanguageSwitch({ onDark = false }: { onDark?: boolean }) {
+  const { language, setLanguage } = useI18n();
+  return (
+    <View style={[styles.languageSwitch, onDark && styles.languageSwitchDark]} accessibilityRole="radiogroup">
+      {([['am', 'አማ'], ['en', 'EN']] as const).map(([value, label]) => {
+        const selected = language === value;
+        return (
+          <Pressable
+            accessibilityRole="radio"
+            accessibilityLabel={value === 'am' ? 'አማርኛ' : 'English'}
+            accessibilityState={{ selected }}
+            key={value}
+            onPress={() => setLanguage(value)}
+            style={[styles.languageOption, selected && styles.languageOptionActive]}
+          >
+            <NativeText style={[styles.languageText, onDark && styles.languageTextDark, selected && styles.languageTextActive]}>{label}</NativeText>
+          </Pressable>
+        );
+      })}
+    </View>
+  );
+}
+
+export function localizedAlert(title: string, message?: string, buttons?: AlertButton[], options?: AlertOptions) {
+  Alert.alert(
+    localizeText(title),
+    message ? localizeText(message) : undefined,
+    buttons?.map(button => ({ ...button, text: button.text ? localizeText(button.text) : button.text })),
+    options,
+  );
+}
+
+const styles = StyleSheet.create({
+  languageSwitch: {
+    height: 38,
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 3,
+    borderRadius: radius.pill,
+    backgroundColor: colors.surfaceMuted,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  languageSwitchDark: {
+    backgroundColor: 'rgba(255,255,255,0.16)',
+    borderColor: 'rgba(255,255,255,0.38)',
+  },
+  languageOption: {
+    minWidth: 36,
+    height: 30,
+    paddingHorizontal: spacing.sm,
+    borderRadius: radius.pill,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  languageOptionActive: { backgroundColor: colors.surface },
+  languageText: { color: colors.muted, fontSize: 11, fontWeight: '900' },
+  languageTextDark: { color: colors.onPrimary },
+  languageTextActive: { color: colors.primary },
+});

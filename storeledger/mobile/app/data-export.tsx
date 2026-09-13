@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { Alert, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Platform, Pressable, StyleSheet, View } from 'react-native';
+import { localizedAlert, Text } from '@/i18n';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as Sharing from 'expo-sharing';
 import { Button, Card, Icon, IconName, Message, Screen, SectionHeader, Title } from '@/components/ui';
@@ -44,7 +45,7 @@ export default function DataExportScreen() {
         URL.revokeObjectURL(objectUrl);
       } else {
         const result = await FileSystem.downloadAsync(url, `${FileSystem.documentDirectory}${filename}`, { headers });
-        if (await Sharing.isAvailableAsync()) await Sharing.shareAsync(result.uri); else Alert.alert('Export saved', result.uri);
+        if (await Sharing.isAvailableAsync()) await Sharing.shareAsync(result.uri); else localizedAlert('Export saved', result.uri);
       }
       setSuccess(`${filename} is ready.`);
     } catch (nextError) {

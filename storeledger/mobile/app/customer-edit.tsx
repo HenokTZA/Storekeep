@@ -1,5 +1,6 @@
 import React, { useCallback, useState } from 'react';
-import { Alert, StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, View } from 'react-native';
+import { localizedAlert, Text } from '@/i18n';
 import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { Badge, Button, Card, Icon, Input, Loading, Message, Money, Screen, SectionHeader, Title } from '@/components/ui';
 import { apiFetch, errorMessage } from '@/lib/api';
@@ -20,7 +21,7 @@ export default function CustomerEditScreen() {
     setBusy(true);
     setError('');
     try {
-      await apiFetch(`/parties/${partyId}/`, { method: 'PATCH', body: JSON.stringify({ party_type: data.party_type, name: data.name, company: data.company, phone: data.phone, account_number: data.account_number, address: data.address, notes: data.notes, sms_enabled: data.sms_enabled }) });
+      await apiFetch(`/parties/${partyId}/`, { method: 'PATCH', body: JSON.stringify({ party_type: data.party_type, name: data.name, company: data.company, phone: data.phone, address: data.address, notes: data.notes, sms_enabled: data.party_type === 'factory' ? false : data.sms_enabled }) });
       router.back();
     } catch (nextError) {
       setError(errorMessage(nextError));
@@ -28,12 +29,16 @@ export default function CustomerEditScreen() {
       setBusy(false);
     }
   };
-  const archive = () => Alert.alert('Archive customer?', 'Financial history remains available and cannot be deleted.', [{ text: 'Cancel' }, { text: 'Archive', style: 'destructive', onPress: async () => { try { await apiFetch(`/parties/${partyId}/`, { method: 'DELETE' }); router.back(); } catch (nextError) { setError(errorMessage(nextError)); } } }]);
+  const label = data.party_type === 'factory' ? 'Factory' : data.party_type === 'agent' ? 'Agent' : 'Trader';
+  const archiveMessage = data.party_type === 'factory'
+    ? 'Settle its balance and archive or move all active Products first. Financial history remains available.'
+    : 'Settle its balance first. Financial history remains available and cannot be deleted.';
+  const archive = () => localizedAlert(`Archive ${label.toLowerCase()}?`, archiveMessage, [{ text: 'Cancel' }, { text: 'Archive', style: 'destructive', onPress: async () => { try { await apiFetch(`/parties/${partyId}/`, { method: 'DELETE' }); router.back(); } catch (nextError) { setError(errorMessage(nextError)); } } }]);
   const balanceColor = data.balance_color === 'red' ? colors.danger : data.balance_color === 'green' ? colors.success : colors.neutral;
 
   return (
     <Screen>
-      <Title eyebrow="Customer profile" subtitle="Update contact and account information">Edit Customer</Title>
+      <Title eyebrow={`${label} profile`} subtitle="Update contact and reference information">Edit {label}</Title>
       {error ? <Message text={error} tone="error" /> : null}
       <Card style={styles.identityCard}>
         <View style={styles.avatar}><Text style={styles.avatarText}>{initials(data.name)}</Text></View>
@@ -42,22 +47,21 @@ export default function CustomerEditScreen() {
       </Card>
 
       <Card style={styles.formCard}>
-        <SectionHeader title="Contact" />
-        <Input label="Contact Name" icon="person-outline" value={data.name} onChangeText={value => update('name', value)} />
-        <Input label="Company" icon="business-outline" value={data.company} onChangeText={value => update('company', value)} />
-        <Input label="Phone" icon="call-outline" value={data.phone} onChangeText={value => update('phone', value)} keyboardType="phone-pad" />
+        <SectionHeader title={data.party_type === 'factory' ? 'Factory details' : 'Contact'} />
+        <Input label={data.party_type === 'factory' ? 'Factory Name' : 'Contact Name'} icon={data.party_type === 'factory' ? 'business-outline' : 'person-outline'} value={data.name} onChangeText={value => update('name', value)} />
+        <Input label={data.party_type === 'factory' ? 'Contact Person' : 'Company'} icon="business-outline" value={data.company} onChangeText={value => update('company', value)} />
+        <Input label={`Phone${data.party_type === 'factory' ? ' (optional)' : ''}`} icon="call-outline" value={data.phone} onChangeText={value => update('phone', value)} keyboardType="phone-pad" />
       </Card>
 
       <Card style={styles.formCard}>
-        <SectionHeader title="Account details" />
-        <Input label="Account Number" icon="card-outline" value={data.account_number} onChangeText={value => update('account_number', value)} />
+        <SectionHeader title="Additional details" />
         <Input label="Address" icon="location-outline" value={data.address} onChangeText={value => update('address', value)} />
         <Input label="Notes" icon="document-text-outline" value={data.notes} onChangeText={value => update('notes', value)} multiline />
       </Card>
 
       <Button title={busy ? 'Saving…' : 'Save Changes'} icon="checkmark-circle-outline" onPress={save} disabled={busy} />
       <View style={styles.dangerZone}>
-        <View style={styles.dangerCopy}><Text style={styles.dangerTitle}>Archive this customer</Text><Text style={styles.dangerText}>History is preserved, but no new transactions can be added.</Text></View>
+        <View style={styles.dangerCopy}><Text style={styles.dangerTitle}>Archive this {label.toLowerCase()}</Text><Text style={styles.dangerText}>{data.party_type === 'factory' ? 'Requires a zero balance and no active Products.' : 'Requires a zero balance. History is preserved.'}</Text></View>
         <Button title="Archive" icon="archive-outline" compact variant="danger" onPress={archive} />
       </View>
     </Screen>

@@ -16,16 +16,16 @@ class MembershipAdmin(admin.ModelAdmin):
 
 @admin.register(models.Product)
 class ProductAdmin(admin.ModelAdmin):
-    list_display = ("name", "sku", "store", "pieces_per_unit", "selling_price", "is_active")
-    list_filter = ("store", "is_active")
-    search_fields = ("name", "sku")
+    list_display = ("name", "factory", "store", "pieces_per_unit", "selling_price", "is_active")
+    list_filter = ("store", "factory", "is_active")
+    search_fields = ("name", "factory__name")
 
 
 @admin.register(models.Party)
 class PartyAdmin(admin.ModelAdmin):
     list_display = ("name", "party_type", "store", "current_balance", "is_active")
     list_filter = ("store", "party_type", "is_active")
-    search_fields = ("name", "phone", "account_number")
+    search_fields = ("name", "phone", "company")
 
 
 @admin.register(models.Sale)
@@ -43,7 +43,6 @@ class PaymentAdmin(admin.ModelAdmin):
 
 for model in [
     models.StoreSettings,
-    models.Category,
     models.InventoryBalance,
     models.StockMovement,
     models.SaleItem,

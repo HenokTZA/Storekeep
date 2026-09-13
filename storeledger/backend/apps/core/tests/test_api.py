@@ -1,8 +1,10 @@
 from datetime import date
 from decimal import Decimal
+from io import BytesIO
 
 from django.contrib.auth.models import User
 from django.urls import reverse
+from PIL import Image
 from rest_framework.test import APITestCase
 from rest_framework_simplejwt.tokens import RefreshToken
 
@@ -17,9 +19,21 @@ class TenantIsolationApiTests(APITestCase):
         StoreSettings.objects.create(store=self.store)
         StoreSettings.objects.create(store=self.other_store)
         Membership.objects.create(user=self.user, store=self.store, role=Membership.Role.OWNER)
-        self.product = Product.objects.create(store=self.store, name="Mine", sku="MINE", selling_price=10)
+        self.factory = Party.objects.create(
+            store=self.store,
+            party_type=Party.PartyType.FACTORY,
+            name="FF",
+            phone="",
+        )
+        self.other_factory = Party.objects.create(
+            store=self.other_store,
+            party_type=Party.PartyType.FACTORY,
+            name="FF",
+            phone="",
+        )
+        self.product = Product.objects.create(store=self.store, factory=self.factory, name="Mine", selling_price=10)
         InventoryBalance.objects.create(product=self.product, quantity=5)
-        other = Product.objects.create(store=self.other_store, name="Hidden", sku="HIDDEN", selling_price=10)
+        other = Product.objects.create(store=self.other_store, factory=self.other_factory, name="Hidden", selling_price=10)
         InventoryBalance.objects.create(product=other, quantity=5)
         self.party = Party.objects.create(
             store=self.store,
@@ -34,6 +48,7 @@ class TenantIsolationApiTests(APITestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.data["count"], 1)
         self.assertEqual(response.data["results"][0]["name"], "Mine")
+        self.assertEqual(response.data["results"][0]["factory_name"], "FF")
         self.assertEqual(response.data["results"][0]["agent_selling_price"], "9.85")
         self.assertEqual(response.data["results"][0]["pieces_per_unit"], 1)
         self.assertEqual(response.data["results"][0]["pack_selling_price"], "10.00")
@@ -42,8 +57,8 @@ class TenantIsolationApiTests(APITestCase):
         for index in range(4):
             Product.objects.create(
                 store=self.store,
+                factory=self.factory,
                 name=f"Searchable Product {index}",
-                sku=f"SEARCH-{index}",
                 selling_price="20.00",
             )
         first = self.client.get("/api/v1/products/?page_size=3&page=1&common=1&search=Searchable")
@@ -53,7 +68,7 @@ class TenantIsolationApiTests(APITestCase):
         self.assertEqual(len(first.data["results"]), 3)
         self.assertEqual(len(second.data["results"]), 1)
 
-    def test_agent_sale_price_is_enforced_by_the_api(self):
+    def test_agent_sale_allows_one_transaction_price_override(self):
         import uuid
 
         agent = Party.objects.create(
@@ -67,14 +82,96 @@ class TenantIsolationApiTests(APITestCase):
             {
                 "customer_id": agent.id,
                 "idempotency_key": str(uuid.uuid4()),
-                "amount_paid": "9.85",
+                "amount_paid": "999.00",
                 "sale_items": [{"product_id": self.product.id, "quantity": "1.000", "unit_price": "999.00"}],
             },
             format="json",
         )
         self.assertEqual(response.status_code, 201, response.data)
-        self.assertEqual(response.data["total"], "9.85")
-        self.assertEqual(response.data["items"][0]["unit_price"], "9.85")
+        self.assertEqual(response.data["total"], "999.00")
+        self.assertEqual(response.data["items"][0]["unit_price"], "999.00")
+        self.assertEqual(response.data["items"][0]["factory_name"], "FF")
+        self.product.refresh_from_db()
+        self.assertEqual(self.product.selling_price, Decimal("10.00"))
+
+    def test_walk_in_sale_override_appears_in_unified_transaction_history(self):
+        import uuid
+
+        response = self.client.post(
+            "/api/v1/sales/",
+            {
+                "customer_id": None,
+                "idempotency_key": str(uuid.uuid4()),
+                "amount_paid": "8.00",
+                "sale_items": [{"product_id": self.product.id, "quantity": "1.000", "unit_price": "8.00"}],
+                "note": "Walk-in negotiated sale",
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, 201, response.data)
+        self.assertEqual(response.data["total"], "8.00")
+        self.assertEqual(response.data["outstanding"], "0.00")
+        self.assertEqual(response.data["items"][0]["unit_price"], "8.00")
+        self.product.refresh_from_db()
+        self.assertEqual(self.product.selling_price, Decimal("10.00"))
+
+        transactions = self.client.get("/api/v1/transactions/?transaction_type=sale&search=walk-in")
+        self.assertEqual(transactions.status_code, 200, transactions.data)
+        self.assertEqual(transactions.data["count"], 1)
+        row = transactions.data["results"][0]
+        self.assertEqual(row["id"], f"walkin-{response.data['id']}")
+        self.assertIsNone(row["party"])
+        self.assertEqual(row["party_name"], "Walk-in Customer")
+        self.assertEqual(row["party_type"], "walk_in")
+        self.assertEqual(row["sale"], response.data["id"])
+        self.assertEqual(row["sale_amount"], "8.00")
+        self.assertEqual(row["payment_amount"], "8.00")
+
+        dashboard = self.client.get("/api/v1/dashboard/")
+        self.assertEqual(dashboard.status_code, 200, dashboard.data)
+        self.assertTrue(any(str(item["sale"]) == response.data["id"] for item in dashboard.data["recent_transactions"]))
+        receipt = self.client.get(f"/api/v1/sales/{response.data['id']}/receipt/")
+        self.assertEqual(receipt.status_code, 200)
+        self.assertEqual(receipt["Content-Type"], "image/png")
+
+    def test_factory_filter_and_same_product_name_across_factories(self):
+        second_factory = Party.objects.create(
+            store=self.store,
+            party_type=Party.PartyType.FACTORY,
+            name="TT",
+            phone="",
+        )
+        second_product = Product.objects.create(
+            store=self.store,
+            factory=second_factory,
+            name="Mine",
+            selling_price="12.00",
+        )
+        InventoryBalance.objects.create(product=second_product, quantity=7)
+        response = self.client.get(f"/api/v1/products/?factory={second_factory.id}")
+        self.assertEqual(response.status_code, 200, response.data)
+        self.assertEqual(response.data["count"], 1)
+        self.assertEqual(response.data["results"][0]["factory_name"], "TT")
+
+    def test_factory_can_be_created_without_phone_or_account_number(self):
+        response = self.client.post(
+            "/api/v1/parties/",
+            {"party_type": "factory", "name": "ID", "phone": ""},
+            format="json",
+        )
+        self.assertEqual(response.status_code, 201, response.data)
+        self.assertNotIn("account_number", response.data)
+        trader_response = self.client.get(f"/api/v1/parties/{self.party.id}/")
+        self.assertEqual(trader_response.status_code, 200, trader_response.data)
+        self.assertNotIn("account_number", trader_response.data)
+        type_change = self.client.patch(
+            f"/api/v1/parties/{self.factory.id}/",
+            {"party_type": "trader"},
+            format="json",
+        )
+        self.assertEqual(type_change.status_code, 400)
+        archive_with_products = self.client.delete(f"/api/v1/parties/{self.factory.id}/")
+        self.assertEqual(archive_with_products.status_code, 400)
 
     def test_inaccessible_store_header_is_rejected(self):
         response = self.client.get("/api/v1/products/", HTTP_X_STORE_ID=str(self.other_store.id))
@@ -103,6 +200,22 @@ class TenantIsolationApiTests(APITestCase):
         self.assertEqual(invoice.status_code, 200)
         self.assertEqual(invoice["Content-Type"], "application/pdf")
         self.assertTrue(b"".join(invoice.streaming_content).startswith(b"%PDF"))
+        receipt = self.client.get(f"/api/v1/sales/{first.data['id']}/receipt/")
+        self.assertEqual(receipt.status_code, 200)
+        self.assertEqual(receipt["Content-Type"], "image/png")
+        self.assertEqual(receipt["Content-Language"], "en")
+        with Image.open(BytesIO(receipt.content)) as receipt_image:
+            self.assertEqual(receipt_image.format, "PNG")
+            self.assertEqual(receipt_image.info["Store"], "Allowed")
+            self.assertEqual(receipt_image.info["Transaction Type"], "sale")
+            self.assertEqual(receipt_image.info["Transaction Outstanding"], "5.00")
+            self.assertEqual(receipt_image.info["Account Balance After"], "5.00")
+            self.assertEqual(receipt_image.info["Language"], "en")
+        localized_receipt = self.client.get(f"/api/v1/sales/{first.data['id']}/receipt/?language=am")
+        self.assertEqual(localized_receipt.status_code, 200)
+        self.assertEqual(localized_receipt["Content-Language"], "am")
+        with Image.open(BytesIO(localized_receipt.content)) as receipt_image:
+            self.assertEqual(receipt_image.info["Language"], "am")
 
     def test_pack_pricing_is_exposed_and_enforced_by_sale_api(self):
         import uuid
@@ -125,6 +238,32 @@ class TenantIsolationApiTests(APITestCase):
         self.assertEqual(response.data["items"][0]["pieces_per_unit"], 54)
         self.assertEqual(response.data["items"][0]["total_pieces"], "54.000")
         self.assertEqual(response.data["items"][0]["pack_price"], "10800.00")
+
+    def test_sale_receipt_total_outstanding_includes_previous_balance(self):
+        import uuid
+
+        previous = self.client.post(
+            f"/api/v1/parties/{self.party.id}/credit/",
+            {"amount": "7.00", "direction": "owes_me", "note": "Previous balance"},
+            format="json",
+        )
+        self.assertEqual(previous.status_code, 201, previous.data)
+        sale = self.client.post(
+            "/api/v1/sales/",
+            {
+                "customer_id": self.party.id,
+                "idempotency_key": str(uuid.uuid4()),
+                "amount_paid": "5.00",
+                "sale_items": [{"product_id": self.product.id, "quantity": "1.000"}],
+            },
+            format="json",
+        )
+        self.assertEqual(sale.status_code, 201, sale.data)
+        self.assertEqual(sale.data["outstanding"], "5.00")
+        receipt = self.client.get(f"/api/v1/sales/{sale.data['id']}/receipt/")
+        with Image.open(BytesIO(receipt.content)) as receipt_image:
+            self.assertEqual(receipt_image.info["Transaction Outstanding"], "5.00")
+            self.assertEqual(receipt_image.info["Account Balance After"], "12.00")
 
     def test_store_settings_can_update_store_profile(self):
         response = self.client.patch(
@@ -315,7 +454,7 @@ class TenantIsolationApiTests(APITestCase):
 
         key = str(uuid.uuid4())
         payload = {
-            "supplier_id": self.party.id,
+            "supplier_id": self.factory.id,
             "idempotency_key": key,
             "purchase_date": str(date.today()),
             "amount_paid": "3.00",
@@ -328,8 +467,8 @@ class TenantIsolationApiTests(APITestCase):
         self.assertEqual(second.status_code, 201, second.data)
         self.assertEqual(first.data["id"], second.data["id"])
         self.assertEqual(InventoryBalance.objects.get(product=self.product).quantity, Decimal("7.000"))
-        self.party.refresh_from_db()
-        self.assertEqual(self.party.current_balance, Decimal("-5.00"))
+        self.factory.refresh_from_db()
+        self.assertEqual(self.factory.current_balance, Decimal("-5.00"))
         dashboard = self.client.get("/api/v1/dashboard/")
         self.assertEqual(dashboard.data["today_expenses"], "3.00")
         self.assertEqual(dashboard.data["month_expenses"], "3.00")
@@ -342,6 +481,57 @@ class TenantIsolationApiTests(APITestCase):
         transaction_detail = self.client.get("/api/v1/dashboard/details/?kind=today_transactions")
         self.assertEqual(transaction_detail.data["count"], 1)
         self.assertEqual(str(transaction_detail.data["payments"][0]["purchase"]), first.data["id"])
+        receipt = self.client.get(f"/api/v1/purchases/{first.data['id']}/receipt/")
+        self.assertEqual(receipt.status_code, 200)
+        self.assertEqual(receipt["Content-Type"], "image/png")
+        self.assertEqual(receipt["Content-Language"], "en")
+        with Image.open(BytesIO(receipt.content)) as receipt_image:
+            self.assertEqual(receipt_image.format, "PNG")
+            self.assertEqual(receipt_image.info["Store"], "Allowed")
+            self.assertEqual(receipt_image.info["Transaction Type"], "purchase")
+            self.assertEqual(receipt_image.info["Transaction Outstanding"], "5.00")
+            self.assertEqual(receipt_image.info["Account Balance After"], "-5.00")
+            self.assertEqual(receipt_image.info["Language"], "en")
+        localized_receipt = self.client.get(f"/api/v1/purchases/{first.data['id']}/receipt/?language=am")
+        self.assertEqual(localized_receipt.status_code, 200)
+        self.assertEqual(localized_receipt["Content-Language"], "am")
+        with Image.open(BytesIO(localized_receipt.content)) as receipt_image:
+            self.assertEqual(receipt_image.info["Language"], "am")
+        invoice_alias = self.client.get(f"/api/v1/purchases/{first.data['id']}/invoice/")
+        self.assertEqual(invoice_alias.status_code, 200)
+        self.assertEqual(invoice_alias["Content-Type"], "image/png")
+
+        rejected = self.client.post(
+            "/api/v1/purchases/",
+            {**payload, "idempotency_key": str(uuid.uuid4()), "supplier_id": self.party.id},
+            format="json",
+        )
+        self.assertEqual(rejected.status_code, 400)
+
+        second_factory = Party.objects.create(
+            store=self.store,
+            party_type=Party.PartyType.FACTORY,
+            name="TT",
+            phone="",
+        )
+        second_product = Product.objects.create(
+            store=self.store,
+            factory=second_factory,
+            name="Mine",
+            selling_price="12.00",
+        )
+        InventoryBalance.objects.create(product=second_product, quantity=4)
+        mismatched = self.client.post(
+            "/api/v1/purchases/",
+            {
+                **payload,
+                "idempotency_key": str(uuid.uuid4()),
+                "purchase_items": [{"product_id": second_product.id, "quantity": "1.000", "unit_cost": "4.00"}],
+            },
+            format="json",
+        )
+        self.assertEqual(mismatched.status_code, 400)
+        self.assertEqual(InventoryBalance.objects.get(product=second_product).quantity, Decimal("4.000"))
 
     def test_manual_sms_automation_is_testable_without_celery(self):
         self.party.current_balance = Decimal("25.00")

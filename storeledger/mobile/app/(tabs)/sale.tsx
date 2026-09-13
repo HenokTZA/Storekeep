@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Alert, Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Modal, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { localizedAlert, Text, useI18n } from '@/i18n';
 import { useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Badge, Button, Card, Icon, Input, Loading, Message, Money, Screen, SearchField, SectionHeader, Title } from '@/components/ui';
@@ -16,11 +17,13 @@ type Draft = {
   customerId: number | null;
   quantities: Record<string, number>;
   selectedProducts?: Product[];
+  customPrices?: Record<string, string>;
   amountPaid: string;
   note: string;
 };
 
 export default function SaleScreen() {
+  const { t } = useI18n();
   const { store } = useAuth();
   const { customerId: requestedCustomerId } = useLocalSearchParams<{ customerId?: string }>();
   const [products, setProducts] = useState<Product[]>([]);
@@ -32,6 +35,7 @@ export default function SaleScreen() {
   const [customerId, setCustomerId] = useState<number | null>(null);
   const [quantities, setQuantities] = useState<Record<string, number>>({});
   const [selectedProducts, setSelectedProducts] = useState<Record<string, Product>>({});
+  const [customPrices, setCustomPrices] = useState<Record<string, string>>({});
   const [amountPaid, setAmountPaid] = useState('0');
   const [note, setNote] = useState('');
   const [loading, setLoading] = useState(true);
@@ -40,6 +44,9 @@ export default function SaleScreen() {
   const [partyOffline, setPartyOffline] = useState(false);
   const [productOffline, setProductOffline] = useState(false);
   const [previewVisible, setPreviewVisible] = useState(false);
+  const [quantityEditor, setQuantityEditor] = useState<Product | null>(null);
+  const [quantityDraft, setQuantityDraft] = useState('');
+  const [quantityError, setQuantityError] = useState('');
   const offline = partyOffline || productOffline;
 
   const selectedCustomer = parties.find(party => party.id === customerId) || null;
@@ -48,9 +55,16 @@ export default function SaleScreen() {
     () => Object.values(selectedProducts).filter(product => (quantities[String(product.id)] || 0) > 0),
     [quantities, selectedProducts],
   );
-  const piecePrice = useCallback(
+  const defaultPiecePrice = useCallback(
     (product: Product) => Number(isAgentSale ? product.agent_selling_price : product.selling_price),
     [isAgentSale],
+  );
+  const piecePrice = useCallback(
+    (product: Product) => {
+      const custom = customPrices[String(product.id)];
+      return custom !== undefined ? Number(custom) : defaultPiecePrice(product);
+    },
+    [customPrices, defaultPiecePrice],
   );
   const packPrice = useCallback(
     (product: Product) => piecePrice(product) * Number(product.pieces_per_unit || 1),
@@ -96,16 +110,21 @@ export default function SaleScreen() {
         cachedGet<Paginated<Party>>('/parties/?page_size=100'),
         getLocalValue<Draft>('sale-draft'),
       ]);
-      setParties(partyResult.data.results);
+      const saleCustomers = partyResult.data.results.filter(party => party.party_type !== 'factory');
+      setParties(saleCustomers);
       setPartyOffline(partyResult.offline);
       if (draft) {
-        setCustomerId(draft.customerId);
+        setCustomerId(draft.customerId && saleCustomers.some(party => party.id === draft.customerId) ? draft.customerId : null);
         setQuantities(draft.quantities || {});
         setSelectedProducts(Object.fromEntries((draft.selectedProducts || []).map(product => [String(product.id), product])));
+        setCustomPrices(draft.customPrices || {});
         setAmountPaid(draft.amountPaid);
         setNote(draft.note);
       }
-      if (requestedCustomerId) setCustomerId(Number(requestedCustomerId));
+      if (requestedCustomerId) {
+        const requested = Number(requestedCustomerId);
+        if (saleCustomers.some(party => party.id === requested)) setCustomerId(requested);
+      }
       setProductQuery('');
       setProductPage(1);
       await loadProducts('', 1);
@@ -130,19 +149,20 @@ export default function SaleScreen() {
         customerId,
         quantities,
         selectedProducts: selectedProductList,
+        customPrices,
         amountPaid,
         note,
       });
     }
-  }, [amountPaid, customerId, loading, note, quantities, selectedProductList]);
+  }, [amountPaid, customerId, customPrices, loading, note, quantities, selectedProductList]);
 
   useEffect(() => {
     if (customerId === null) setAmountPaid(total.toFixed(2));
   }, [customerId, total]);
 
-  const changeQuantity = (product: Product, delta: number) => {
+  const setProductQuantity = (product: Product, requestedQuantity: number) => {
     const key = String(product.id);
-    const next = Math.max(0, Math.min(Number(product.current_quantity), (quantities[key] || 0) + delta));
+    const next = Math.max(0, Math.min(Number(product.current_quantity), requestedQuantity));
     setQuantities(current => ({ ...current, [key]: next }));
     setSelectedProducts(current => {
       const updated = { ...current };
@@ -152,8 +172,53 @@ export default function SaleScreen() {
     });
   };
 
+  const changeQuantity = (product: Product, delta: number) => {
+    setProductQuantity(product, (quantities[String(product.id)] || 0) + delta);
+  };
+
+  const openQuantityEditor = (product: Product) => {
+    setQuantityDraft(String(quantities[String(product.id)] || 0));
+    setQuantityError('');
+    setQuantityEditor(product);
+  };
+
+  const updateQuantityDraft = (value: string) => {
+    setQuantityDraft(value);
+    if (!quantityEditor || !value.trim()) {
+      setQuantityError('');
+      return;
+    }
+    const next = Number(value);
+    const available = Number(quantityEditor.current_quantity);
+    if (!Number.isFinite(next) || next < 0) {
+      setQuantityError(`Enter numbers only, from 0 to ${available.toLocaleString()} units.`);
+    } else if (next > available) {
+      setQuantityError(`You entered ${next.toLocaleString()} units, but only ${available.toLocaleString()} are in stock. Enter ${available.toLocaleString()} or less.`);
+    } else {
+      setQuantityError('');
+    }
+  };
+
+  const applyQuantity = () => {
+    if (!quantityEditor) return;
+    const next = Number(quantityDraft);
+    const available = Number(quantityEditor.current_quantity);
+    if (!Number.isFinite(next) || next < 0) {
+      setQuantityError(`Enter numbers only, from 0 to ${available.toLocaleString()} units.`);
+      return;
+    }
+    if (next > available) {
+      setQuantityError(`You entered ${next.toLocaleString()} units, but only ${available.toLocaleString()} are in stock. Enter ${available.toLocaleString()} or less.`);
+      return;
+    }
+    setProductQuantity(quantityEditor, next);
+    setQuantityError('');
+    setQuantityEditor(null);
+  };
+
   const submit = async () => {
     if (!selectedProductList.length) return setError('Select at least one product.');
+    if (selectedProductList.some(product => !Number.isFinite(piecePrice(product)) || piecePrice(product) < 0)) return setError('Enter a valid selling price for every selected product.');
     if (offline) return setError('Reconnect to the internet before posting this financial transaction. Your draft is saved.');
     setBusy(true);
     setError('');
@@ -168,6 +233,7 @@ export default function SaleScreen() {
           sale_items: selectedProductList.map(product => ({
             product_id: product.id,
             quantity: quantities[String(product.id)],
+            unit_price: piecePrice(product).toFixed(2),
           })),
         }),
       });
@@ -176,9 +242,10 @@ export default function SaleScreen() {
       setCustomerId(null);
       setQuantities({});
       setSelectedProducts({});
+      setCustomPrices({});
       setNote('');
       setAmountPaid('0');
-      Alert.alert('Sale saved', 'Stock, customer balance and invoice were created successfully.');
+      localizedAlert('Sale saved', 'Stock, transaction history and receipt were created successfully.');
       await loadProducts(productQuery, productPage);
     } catch (nextError) {
       setError(errorMessage(nextError));
@@ -190,6 +257,7 @@ export default function SaleScreen() {
 
   if (loading) return <Screen scroll={false} safeTop><Loading /></Screen>;
   const balance = total - Number(amountPaid || 0);
+  const accountBalanceAfter = Number(selectedCustomer?.current_balance || 0) + balance;
   return (
     <Screen safeTop>
       <Title eyebrow="Point of sale" subtitle="Choose a customer, sell in packs and confirm payment">New Sale</Title>
@@ -205,8 +273,8 @@ export default function SaleScreen() {
 
       <SectionHeader title="1. Customer" subtitle="Walk-in sales must be paid in full" />
       <View style={styles.chips}>
-        <Choice selected={customerId === null} label="Walk-in" icon="walk-outline" onPress={() => setCustomerId(null)} />
-        {parties.map(party => <Choice key={party.id} selected={customerId === party.id} label={party.name} badge={party.party_type === 'agent' ? 'Agent' : 'Trader'} icon={party.party_type === 'agent' ? 'people-outline' : 'person-outline'} onPress={() => setCustomerId(party.id)} />)}
+        <Choice selected={customerId === null} label="Walk-in" icon="walk-outline" onPress={() => { setCustomerId(null); setCustomPrices({}); }} />
+        {parties.map(party => <Choice key={party.id} selected={customerId === party.id} label={party.name} badge={party.party_type === 'agent' ? 'Agent' : 'Trader'} icon={party.party_type === 'agent' ? 'people-outline' : 'person-outline'} onPress={() => { setCustomerId(party.id); setCustomPrices({}); }} />)}
       </View>
       {selectedCustomer ? (
         <Card style={styles.selectedCustomer}>
@@ -215,26 +283,28 @@ export default function SaleScreen() {
           <Badge label={selectedCustomer.balance_label.toUpperCase()} tone={selectedCustomer.balance_color === 'red' ? 'danger' : selectedCustomer.balance_color === 'green' ? 'success' : 'neutral'} />
         </Card>
       ) : null}
-      {isAgentSale ? <Message text="Agent price applied automatically: 1.5% below every product's standard price per piece." tone="success" /> : null}
+      {isAgentSale ? <Message text="Agent prices default to 1.5% below standard. You can negotiate and override each selected product below." tone="success" /> : selectedCustomer ? <Message text="The standard price is prefilled. Edit any selected product's price for this sale only." /> : null}
 
       <SectionHeader title="2. Products" subtitle={`${selectedUnitCount} unit${selectedUnitCount === 1 ? '' : 's'} across ${selectedProductList.length} product${selectedProductList.length === 1 ? '' : 's'}`} />
       <SearchField
         value={productQuery}
         onChangeText={value => { setProductQuery(value); setProductPage(1); }}
-        placeholder="Search product name or SKU"
+        placeholder="Search product name or factory"
         onSubmitEditing={() => loadProducts(productQuery, 1)}
       />
       {productLoading ? <Card><Loading /></Card> : products.length ? products.map(product => {
         const selectedQuantity = quantities[String(product.id)] || 0;
         const selected = selectedQuantity > 0;
         const piecesPerUnit = Number(product.pieces_per_unit || 1);
+        const overridden = customPrices[String(product.id)] !== undefined;
         return (
           <Card key={product.id} style={selected ? styles.selectedProduct : undefined}>
             <View style={styles.productRow}>
               <View style={[styles.productIcon, product.is_low_stock && styles.productIconLow]}><Icon name="cube-outline" size={23} color={product.is_low_stock ? colors.warning : colors.primary} /></View>
               <View style={styles.productInfo}>
                 <View style={styles.productNameRow}><Text style={styles.productName}>{product.name}</Text>{product.is_low_stock ? <Badge label="LOW" tone="warning" /> : null}</View>
-                <Text style={styles.small}>{product.current_quantity} units available · {product.sku}</Text>
+                <Text style={styles.factoryText}>Factory {product.factory_name}</Text>
+                <Text style={styles.small}>{product.current_quantity} units available</Text>
                 <View style={styles.packRow}>
                   <Text style={styles.packBadge}>×{piecesPerUnit} pcs / unit</Text>
                   <Text style={styles.small}><Money value={piecePrice(product)} size="small" /> per piece</Text>
@@ -249,11 +319,27 @@ export default function SaleScreen() {
                 <Text style={styles.quantityHint}>Units / packs</Text>
               </View>
               <View style={styles.stepper}>
-                <Pressable disabled={!selected} accessibilityLabel={`Remove one unit of ${product.name}`} style={[styles.stepButton, !selected && styles.stepButtonDisabled]} onPress={() => changeQuantity(product, -1)}><Icon name="remove" size={20} color={selected ? colors.primary : colors.muted} /></Pressable>
-                <View style={styles.qtyBox}><Text style={styles.qty}>{selectedQuantity}</Text><Text style={styles.qtyLabel}>unit{selectedQuantity === 1 ? '' : 's'}</Text></View>
-                <Pressable accessibilityLabel={`Add one unit of ${product.name}`} style={[styles.stepButton, selected && styles.stepButtonSelected]} onPress={() => changeQuantity(product, 1)}><Icon name="add" size={20} color={selected ? colors.onPrimary : colors.primary} /></Pressable>
+                <Pressable disabled={!selected} accessibilityLabel={t(`Remove one unit of ${product.name}`)} style={[styles.stepButton, !selected && styles.stepButtonDisabled]} onPress={() => changeQuantity(product, -1)}><Icon name="remove" size={20} color={selected ? colors.primary : colors.muted} /></Pressable>
+                <Pressable accessibilityRole="button" accessibilityLabel={t(`Enter units for ${product.name}`)} onPress={() => openQuantityEditor(product)} style={({ pressed }) => [styles.qtyBox, pressed && styles.pressed]}>
+                  <View style={styles.qtyValueRow}><Text style={styles.qty}>{selectedQuantity}</Text><Icon name="create-outline" size={14} color={colors.primary} /></View>
+                  <Text style={styles.qtyLabel}>Tap to enter</Text>
+                </Pressable>
+                <Pressable accessibilityLabel={t(`Add one unit of ${product.name}`)} style={[styles.stepButton, selected && styles.stepButtonSelected]} onPress={() => changeQuantity(product, 1)}><Icon name="add" size={20} color={selected ? colors.onPrimary : colors.primary} /></Pressable>
               </View>
             </View>
+            {selected ? (
+              <View style={styles.priceEditor}>
+                <View style={styles.priceEditorCopy}>
+                  <Text style={styles.priceEditorTitle}>Selling price for this sale</Text>
+                  <Text style={styles.priceEditorHint}>Default: {defaultPiecePrice(product).toFixed(2)} ETB / piece · this override applies only to this sale</Text>
+                </View>
+                <View style={styles.priceInputRow}>
+                  <View style={styles.priceInput}><Input label="Actual Price / Piece" icon="pricetag-outline" value={overridden ? customPrices[String(product.id)] : defaultPiecePrice(product).toFixed(2)} onChangeText={value => setCustomPrices(current => ({ ...current, [String(product.id)]: value }))} keyboardType="decimal-pad" /></View>
+                  {overridden ? <Button title="Reset" compact variant="ghost" onPress={() => setCustomPrices(current => { const next = { ...current }; delete next[String(product.id)]; return next; })} /> : null}
+                </View>
+                {overridden ? <View style={styles.overrideBadge}><Icon name="checkmark-circle-outline" size={16} color={colors.primary} /><Text style={styles.overrideText}>Custom price will be recorded on this invoice only.</Text></View> : null}
+              </View>
+            ) : null}
           </Card>
         );
       }) : <Message text={productQuery ? 'No products match this search.' : 'No active products are available.'} />}
@@ -296,16 +382,59 @@ export default function SaleScreen() {
         piecePrice={piecePrice}
         total={total}
         amountPaid={Number(amountPaid || 0)}
+        accountBalanceAfter={accountBalanceAfter}
         note={note}
         busy={busy}
         onClose={() => setPreviewVisible(false)}
         onConfirm={submit}
       />
+      <QuantityEditorModal
+        product={quantityEditor}
+        value={quantityDraft}
+        error={quantityError}
+        onChange={updateQuantityDraft}
+        onCancel={() => { setQuantityError(''); setQuantityEditor(null); }}
+        onApply={applyQuantity}
+      />
     </Screen>
   );
 }
 
-function InvoicePreview({ visible, storeName, currency, customer, products, quantities, piecePrice, total, amountPaid, note, busy, onClose, onConfirm }: {
+function QuantityEditorModal({ product, value, error, onChange, onCancel, onApply }: {
+  product: Product | null;
+  value: string;
+  error: string;
+  onChange: (value: string) => void;
+  onCancel: () => void;
+  onApply: () => void;
+}) {
+  const insets = useSafeAreaInsets();
+  const { t } = useI18n();
+  return (
+    <Modal visible={Boolean(product)} animationType="fade" transparent onRequestClose={onCancel}>
+      <View style={styles.quantityModalBackdrop}>
+        <View style={[styles.quantityModal, { paddingBottom: Math.max(insets.bottom, spacing.md) }]}>
+          <View style={styles.quantityModalHeader}>
+            <View style={styles.customerCopy}>
+              <Text style={styles.quantityModalEyebrow}>ENTER UNITS / BAGS</Text>
+              <Text style={styles.quantityModalTitle}>{product?.name}</Text>
+              <Text style={styles.quantityModalMeta}>Factory {product?.factory_name} · maximum {Number(product?.current_quantity || 0).toLocaleString()} units</Text>
+            </View>
+            <Pressable accessibilityLabel={t('Close unit entry')} onPress={onCancel} style={styles.closeButton}><Icon name="close" size={22} color={colors.text} /></Pressable>
+          </View>
+          {error ? <Message text={error} tone="error" /> : null}
+          <Input label="Number of Units / Bags" icon="keypad-outline" value={value} onChangeText={onChange} keyboardType="decimal-pad" autoFocus selectTextOnFocus placeholder="0" hint="Enter zero to remove this product from the sale." />
+          <View style={styles.quantityModalActions}>
+            <View style={styles.invoiceFooterButton}><Button title="Cancel" variant="ghost" onPress={onCancel} /></View>
+            <View style={styles.invoiceFooterButton}><Button title="Set Units" icon="checkmark-circle-outline" onPress={onApply} disabled={Boolean(error) || !value.trim()} /></View>
+          </View>
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
+function InvoicePreview({ visible, storeName, currency, customer, products, quantities, piecePrice, total, amountPaid, accountBalanceAfter, note, busy, onClose, onConfirm }: {
   visible: boolean;
   storeName: string;
   currency: string;
@@ -315,19 +444,21 @@ function InvoicePreview({ visible, storeName, currency, customer, products, quan
   piecePrice: (product: Product) => number;
   total: number;
   amountPaid: number;
+  accountBalanceAfter: number;
   note: string;
   busy: boolean;
   onClose: () => void;
   onConfirm: () => void;
 }) {
   const insets = useSafeAreaInsets();
+  const { t } = useI18n();
   return (
     <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
       <View style={styles.modalBackdrop}>
         <View style={[styles.invoiceSheet, { paddingBottom: Math.max(insets.bottom, spacing.md) }]}>
           <View style={styles.invoiceHeader}>
             <View><Text style={styles.invoiceEyebrow}>INVOICE PREVIEW</Text><Text style={styles.invoiceStore}>{storeName}</Text><Text style={styles.invoiceMeta}>{customer?.name || 'Walk-in customer'} · {new Date().toLocaleString()}</Text></View>
-            <Pressable accessibilityLabel="Close invoice preview" onPress={onClose} style={styles.closeButton}><Icon name="close" size={22} color={colors.text} /></Pressable>
+            <Pressable accessibilityLabel={t('Close invoice preview')} onPress={onClose} style={styles.closeButton}><Icon name="close" size={22} color={colors.text} /></Pressable>
           </View>
           <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.invoiceContent}>
             <Message text="This is a preview. Stock and balances change only after you confirm the sale." />
@@ -338,6 +469,7 @@ function InvoicePreview({ visible, storeName, currency, customer, products, quan
               return (
                 <View key={product.id} style={styles.invoiceLine}>
                   <View style={styles.invoiceLineTop}><Text style={styles.invoiceProduct}>{product.name}</Text><Money value={lineTotal} currency={currency} size="small" /></View>
+                  <Text style={styles.invoiceFactory}>Factory {product.factory_name}</Text>
                   <Text style={styles.invoiceCalculation}>{units} unit{units === 1 ? '' : 's'} × {pieces} pieces × {piecePrice(product).toFixed(2)} {currency} / piece</Text>
                   <Text style={styles.invoicePieces}>{(units * pieces).toLocaleString()} individual pieces</Text>
                 </View>
@@ -346,7 +478,8 @@ function InvoicePreview({ visible, storeName, currency, customer, products, quan
             <View style={styles.invoiceSummary}>
               <SummaryRow label="Invoice total" value={total} currency={currency} strong />
               <SummaryRow label="Amount paid" value={amountPaid} currency={currency} />
-              <SummaryRow label="Outstanding" value={total - amountPaid} currency={currency} tone={total - amountPaid > 0 ? 'danger' : total - amountPaid < 0 ? 'success' : 'normal'} />
+              <SummaryRow label="This sale outstanding" value={Math.abs(total - amountPaid)} currency={currency} tone={total - amountPaid > 0 ? 'danger' : total - amountPaid < 0 ? 'success' : 'normal'} />
+              {customer ? <SummaryRow label={accountBalanceAfter >= 0 ? 'Total outstanding' : 'Total customer credit'} value={Math.abs(accountBalanceAfter)} currency={currency} strong tone={accountBalanceAfter > 0 ? 'danger' : accountBalanceAfter < 0 ? 'success' : 'normal'} /> : null}
             </View>
             {note ? <View style={styles.invoiceNote}><Text style={styles.invoiceNoteLabel}>NOTE</Text><Text style={styles.invoiceNoteText}>{note}</Text></View> : null}
           </ScrollView>
@@ -411,6 +544,7 @@ const styles = StyleSheet.create({
   productInfo: { flex: 1, gap: 2 },
   productNameRow: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: spacing.sm },
   productName: { color: colors.text, fontWeight: '900', fontSize: 15, lineHeight: 20 },
+  factoryText: { color: colors.primary, fontSize: 10, fontWeight: '900', marginTop: 2 },
   selectedProduct: { borderColor: colors.primaryBorder, backgroundColor: colors.successSoft },
   packRow: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: spacing.sm, marginTop: 3 },
   packBadge: { color: colors.primary, backgroundColor: colors.primarySoft, borderRadius: radius.pill, paddingHorizontal: 8, paddingVertical: 3, fontSize: 10, fontWeight: '900' },
@@ -424,9 +558,18 @@ const styles = StyleSheet.create({
   stepButton: { width: 42, height: 42, borderRadius: radius.sm, backgroundColor: colors.primarySoft, borderWidth: 1, borderColor: colors.primaryBorder, alignItems: 'center', justifyContent: 'center' },
   stepButtonDisabled: { opacity: 0.45 },
   stepButtonSelected: { backgroundColor: colors.primaryButton, borderColor: colors.primaryButton },
-  qtyBox: { minWidth: 44, alignItems: 'center' },
+  qtyBox: { minWidth: 68, minHeight: 46, alignItems: 'center', justifyContent: 'center', borderRadius: radius.sm, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.primaryBorder, paddingHorizontal: 7 },
+  qtyValueRow: { flexDirection: 'row', alignItems: 'center', gap: 4 },
   qty: { color: colors.text, fontWeight: '900', fontSize: 16 },
-  qtyLabel: { color: colors.muted, fontSize: 8, fontWeight: '800' },
+  qtyLabel: { color: colors.primary, fontSize: 8, fontWeight: '900' },
+  priceEditor: { gap: spacing.sm, marginTop: spacing.mdSm, paddingTop: spacing.mdSm, borderTopWidth: 1, borderTopColor: colors.primaryBorder },
+  priceEditorCopy: { gap: 2 },
+  priceEditorTitle: { color: colors.text, fontSize: 12, fontWeight: '900' },
+  priceEditorHint: { color: colors.muted, fontSize: 10, lineHeight: 15 },
+  priceInputRow: { flexDirection: 'row', alignItems: 'flex-end', gap: spacing.sm },
+  priceInput: { flex: 1 },
+  overrideBadge: { flexDirection: 'row', alignItems: 'center', gap: 5, borderRadius: radius.sm, backgroundColor: colors.primarySoft, paddingHorizontal: spacing.sm, paddingVertical: 6 },
+  overrideText: { flex: 1, color: colors.primary, fontSize: 10, fontWeight: '800' },
   pagination: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.sm },
   pageButton: { minHeight: 42, minWidth: 96, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 4, borderRadius: radius.md, backgroundColor: colors.primarySoft, borderWidth: 1, borderColor: colors.primaryBorder, paddingHorizontal: spacing.sm },
   pageButtonText: { color: colors.primary, fontWeight: '900', fontSize: 12 },
@@ -452,6 +595,7 @@ const styles = StyleSheet.create({
   invoiceLine: { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.mdSm },
   invoiceLineTop: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.sm },
   invoiceProduct: { flex: 1, color: colors.text, fontSize: 14, fontWeight: '900' },
+  invoiceFactory: { color: colors.primary, fontSize: 10, fontWeight: '900', marginTop: 4 },
   invoiceCalculation: { color: colors.textSoft, fontSize: 11, lineHeight: 17, marginTop: 6 },
   invoicePieces: { color: colors.primary, fontSize: 10, fontWeight: '800', marginTop: 2 },
   invoiceSummary: { backgroundColor: colors.primarySoft, borderRadius: radius.md, padding: spacing.mdSm, gap: 8 },
@@ -464,4 +608,11 @@ const styles = StyleSheet.create({
   invoiceNoteText: { color: colors.text, fontSize: 12, lineHeight: 18, marginTop: 4 },
   invoiceFooter: { flexDirection: 'row', gap: spacing.sm, paddingHorizontal: spacing.md, paddingTop: spacing.md, borderTopWidth: 1, borderTopColor: colors.border },
   invoiceFooterButton: { flex: 1 },
+  quantityModalBackdrop: { flex: 1, justifyContent: 'center', paddingHorizontal: spacing.md, backgroundColor: 'rgba(20, 35, 30, 0.55)' },
+  quantityModal: { width: '100%', maxWidth: 520, alignSelf: 'center', gap: spacing.md, borderRadius: radius.lg, backgroundColor: colors.background, padding: spacing.md, ...shadow.card },
+  quantityModalHeader: { flexDirection: 'row', alignItems: 'flex-start', gap: spacing.md, paddingBottom: spacing.mdSm, borderBottomWidth: 1, borderBottomColor: colors.border },
+  quantityModalEyebrow: { color: colors.primary, fontSize: 10, fontWeight: '900', letterSpacing: 0.7 },
+  quantityModalTitle: { color: colors.text, fontSize: 20, fontWeight: '900', marginTop: 4 },
+  quantityModalMeta: { color: colors.muted, fontSize: 11, lineHeight: 17, marginTop: 4 },
+  quantityModalActions: { flexDirection: 'row', gap: spacing.sm },
 });

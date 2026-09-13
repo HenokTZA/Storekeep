@@ -30,6 +30,17 @@ cd storeledger\backend
 
 Login: `owner` / `ChangeMe123!`.
 
+## Language and localization
+
+1. On a clean installation, confirm Login opens in Amharic.
+2. Tap `EN` at the top-right of Login, sign in and confirm Home, all five tabs and screen titles are English.
+3. Tap `አማ` at the top-right of Home and confirm the visible interface changes to Amharic immediately.
+4. Visit every primary workflow and confirm headings, cards, buttons, form labels, placeholders, empty/loading states, confirmation dialogs, validation messages and accessibility labels follow the selected language.
+5. Close Expo Go completely, reopen StoreLedger and confirm the last language selection is retained.
+6. Create or open one Sale and one Factory Purchase in Amharic. Confirm View, Download and Share use an Amharic PNG receipt with readable Ethiopic glyphs, bold labels and the store watermark.
+7. Switch to English and repeat the Sale and Purchase receipt checks; confirm the receipt labels are English.
+8. Switch between languages and confirm saved Product, Factory, Trader, Agent, reference and note values remain unchanged.
+
 ## Dashboard and navigation
 
 1. Confirm Today's Sales, Collected, Owes Me, I Owe, low stock and today's transaction count are visible.
@@ -50,22 +61,25 @@ Login: `owner` / `ChangeMe123!`.
 
 ## Stock
 
-1. Search for `USB` and by SKU `USBC-1M`.
-2. Confirm USB-C Cable is low at four units with the default threshold of five.
-3. Add a product with category, per-piece prices, opening units, pack name, pieces per unit, threshold, supplier and notes.
-4. Edit every product field, including category, pieces per unit and threshold. Confirm old posted sale lines retain their original pack size.
-5. Receive stock, then make one manual increase and one manual decrease with reasons.
-6. Open Stock History and confirm opening, receipt, sale and adjustment movements cannot be edited.
-7. Archive a product and confirm historical records remain.
-8. Confirm negative stock is rejected while Prevent Negative Inventory is enabled.
-9. In New Sale, confirm each product uses one horizontal `minus → unit count → plus` control and that minus is disabled at zero.
+1. Confirm the Factory filter shows All, FF, TT and ID.
+2. Choose FF and confirm only FF Products appear; repeat for TT and ID.
+3. Search for `356` and confirm `Shoe 356` can appear under both FF and TT as two independently stocked Products.
+4. Add a Product with Factory, product/shoe ID, per-piece prices, opening units, pack name, pieces per unit, threshold and notes. Confirm there are no Category, SKU or free-text Supplier fields.
+5. Try the same Product name under another Factory and confirm it is accepted. Try it twice under the same Factory and confirm the duplicate is rejected.
+6. Edit the Product, including Factory, pieces per unit and threshold. Confirm old posted sale lines retain their original Factory and pack snapshots.
+7. Tap Receive on a Product card. Confirm Factory and Product are already selected while Units Received, Cost / Piece, Amount Paid Now, Purchase Date, Reference / Invoice and Note remain available.
+8. Post that purchase and confirm stock, Factory payable and cash-out totals update atomically. Then make one manual increase and one manual decrease with reasons through Adjust.
+9. Open Stock History and confirm every movement names the Factory and cannot be edited.
+10. Archive a Product and confirm historical records remain.
+11. Confirm negative stock is rejected while Prevent Negative Inventory is enabled.
+12. In New Sale, confirm each Product uses one horizontal `minus → tappable unit count → plus` control and that minus is disabled at zero.
 
 ## Traders and Agents
 
 Repeat for both customer types:
 
-1. Add a customer with name, phone, account, address and notes.
-2. Search by name, phone and account number.
+1. Add a customer with name, phone, company, address and notes. Confirm no account-number field exists.
+2. Search by name, phone and company.
 3. Open Profile and confirm contact details, signed balance and complete history.
 4. Edit the profile.
 5. Start a sale from the profile.
@@ -73,23 +87,41 @@ Repeat for both customer types:
 7. Record both `Customer Owes Me` and `I Owe Customer` credit/loan entries.
 8. Archive the customer and confirm financial history is retained.
 
+## Factories
+
+1. Open People and confirm Traders, Agents and Factories are three separate filters.
+2. Open Factories and confirm FF, TT and ID are listed.
+3. Add a Factory using only its name; confirm phone is optional and no account-number field is shown.
+4. Open the Factory profile and confirm Purchase, Pay Factory, Edit and complete ledger/history actions are available where applicable.
+5. Search Factories by name and optional phone/company.
+6. Start Receive Purchase directly from the Factory profile and confirm that Factory is already selected.
+
 ## Sales, balances and payments
 
 1. Add at least seven products, then open New Sale. Confirm exactly three product cards are visible at once and Previous/Next moves through the complete catalog in three-item pages.
-2. Search by a product name and by SKU. Confirm matching products are returned from the server even when they were not on the current page.
+2. Search by a Product name and Factory name. Confirm matching Products are returned from the server even when they were not on the current page.
 3. Configure a product at `200.00` ETB per piece and `54` pieces per unit. Add one unit and confirm the calculation and total are `1 × 54 × 200.00 = 10,800.00 ETB`.
-4. Tap View Invoice before posting. Confirm customer, every product, units, pieces per unit, total pieces, per-piece price, line totals, amount paid and outstanding are correct.
-5. Confirm the sale, open Transactions, and use Download to save the PDF into an Android folder.
-6. Use Share and confirm the native chooser offers installed compatible apps such as WhatsApp or Telegram; open the shared PDF and recheck the calculation.
-7. Create a Trader sale for ten units with a partial payment; verify total/outstanding and automatic stock reduction by ten units, not by the number of pieces.
-8. Confirm the balance is red and labeled `Owes Me`.
-9. Record a partial payment and confirm the balance decreases.
-10. Record a payment larger than the balance and confirm it becomes green `I Owe`.
-11. Record the exact remaining amount on another customer and confirm `Settled`.
-12. Create an Agent sale for a one-piece product priced at 100.00 ETB. Confirm the app shows 98.50 ETB and the saved sale item remains 98.50 ETB. Repeat with a multi-piece pack and confirm the discount applies to each piece before multiplication.
-13. Create a fully paid walk-in sale. Confirm an underpaid walk-in sale is rejected.
-14. Turn off Wi-Fi while preparing a sale. Confirm the draft survives navigation/restart but posting is blocked.
-15. Reconnect and post once. Confirm stock and money are not duplicated on retry.
+4. Tap the unit count, enter `100`, and confirm it updates immediately without pressing plus 100 times. Confirm values above available stock and invalid values are rejected.
+5. Enter a quantity above current stock and confirm a red message appears inside the unit-entry window, above the input. It must state what was entered, how much is available and the maximum permitted value; Set Units must remain disabled until corrected.
+6. Tap View Invoice before posting. Confirm customer, every product, units, pieces per unit, total pieces, per-piece price, line totals, amount paid, this sale outstanding and total account outstanding are correct.
+7. Confirm the sale, open Transactions, and tap View to inspect the receipt without leaving the app.
+8. Use Download to save the PNG image into an Android folder. Confirm the store-name watermark is visible and all important text is bold/readable.
+9. Use Share and confirm the native chooser offers installed compatible apps such as WhatsApp or Telegram; open the shared PNG and recheck the calculation.
+10. Create a Trader sale for ten units with a partial payment; verify total/outstanding and automatic stock reduction by ten units, not by the number of pieces.
+11. Confirm the balance is red and labeled `Owes Me`.
+12. Record a partial payment and confirm the balance decreases.
+13. Create a later sale for the same Trader and confirm its receipt shows both that sale's outstanding and the total balance immediately after that transaction, including the earlier outstanding amount.
+14. Record a payment larger than the balance and confirm it becomes green `I Owe`.
+15. Record the exact remaining amount on another customer and confirm `Settled`.
+16. Create an Agent sale for a one-piece Product priced at 100.00 ETB. Confirm the price initially shows 98.50 ETB.
+17. Override that Agent line to 97.00 ETB, post it, then confirm the receipt/transaction/report uses 97.00 ETB while the Product still shows a 100.00 ETB standard price.
+18. Create a Trader sale and confirm its price initially shows the standard price. Override one selected line and verify the same transaction-only behavior.
+19. Repeat with a multi-piece pack and confirm the actual per-piece price is multiplied by pieces and units.
+20. Create a walk-in sale and confirm its initial price is the standard Product price. Override it with a discount, verify Amount Paid automatically follows the new total, and post it.
+21. Confirm the discounted walk-in sale appears in Dashboard → Recent Transactions and More → Transactions as `Paid · Walk-in`, with View, Download and Share actions and the actual discounted price on its image receipt.
+22. Confirm the Product master selling price remains unchanged and an underpaid walk-in sale is rejected by the API.
+23. Turn off Wi-Fi while preparing a sale. Confirm the draft, quantities and custom prices survive navigation/restart but posting is blocked.
+24. Reconnect and post once. Confirm stock and money are not duplicated on retry.
 
 ## Expenses and budgets
 
@@ -102,20 +134,25 @@ Repeat for both customer types:
 
 ## Purchases and outgoing payments
 
-1. Open More → Purchases and confirm the seeded supplier purchase appears.
-2. Receive a new purchase with a supplier, multiple products, unit quantities, per-piece costs, date, partial payment and reference. Confirm each line uses `units × pieces per unit × cost per piece`. Use a total of 1,000 ETB and Amount Paid Now of 300 ETB.
-3. Confirm every product stock quantity increases exactly once.
-4. Confirm Today's Expenses, Month Expenses and Today's Transactions increase by exactly 300 ETB/one record—not by the 1,000 ETB purchase total—and the detail page labels it as a purchase amount paid now.
-5. Confirm the unpaid 700 ETB appears as green `I Owe` on the supplier profile.
-6. Open Payment Sent, record part of that amount and confirm the I Owe balance decreases; both expense cards and their details increase by exactly the amount sent.
-7. From Dashboard, tap Pay Someone and repeat a partial payment; confirm Today's Transactions increases and shows Payment sent.
-8. Attempt to send more than the current I Owe balance and confirm both the app and API reject it.
-9. Re-submit the same purchase idempotency key through the API test and confirm stock/payables are not duplicated.
+1. Open More → Purchases and confirm the seeded Factory purchase appears.
+2. Tap Receive Purchase and confirm the Factory dropdown is populated from People → Factories.
+3. Select one Factory and confirm only Products assigned to that Factory can be added.
+4. Receive multiple Products with unit quantities, per-piece costs, date, partial payment and reference. Confirm each line uses `units × pieces per unit × cost per piece`. Use a total of 1,000 ETB and Amount Paid Now of 300 ETB.
+5. Confirm every Product stock quantity increases exactly once under the selected Factory.
+6. Confirm Today's Expenses, Month Expenses and Today's Transactions increase by exactly 300 ETB/one record—not by the 1,000 ETB purchase total—and the detail page labels it as a purchase amount paid now.
+7. Confirm the unpaid 700 ETB appears as green `I Owe` on the Factory profile.
+8. Open Payment Sent, record part of that amount and confirm the I Owe balance decreases; both expense cards and their details increase by exactly the amount sent.
+9. From Dashboard, tap Pay Someone and repeat a partial payment; confirm Today's Transactions increases and shows Payment sent.
+10. Attempt to send more than the current I Owe balance and confirm both the app and API reject it.
+11. Re-submit the same purchase idempotency key through the API test and confirm stock/payables are not duplicated.
+12. Open the posted purchase in More → Purchases and confirm View, Download and Share are all present.
+13. Repeat from Transactions on the primary Purchase ledger row. Confirm View opens the watermarked PNG in the app and Download/Share use the same purchase receipt image.
+14. Confirm the purchase receipt shows this purchase outstanding and the Factory's total amount owed immediately after the purchase.
 
 ## Aging, search, exports and appearance
 
 1. In Settings, set Overdue After Days to `0`, then open Overdue Receivables and confirm positive balances appear with their age.
-2. Open Search Everything and find a product by SKU, a person by phone/company, an expense description and a purchase reference.
+2. Open Search Everything and find a Product by name/Factory, a person by phone/company, an expense description and a purchase reference.
 3. In Export & Backup, download a CSV dataset and share/save it from Android.
 4. Download the full JSON backup and confirm the filename ends in `.json`.
 5. Confirm page headings, labels, card borders, inputs, buttons and selected filters remain clearly visible throughout Dashboard, Stock, Sale, Customers, More and every linked screen.
@@ -127,10 +164,11 @@ Repeat for both customer types:
 
 1. Search and filter Transactions by sale, payment, purchase and credit.
 2. Confirm date/time, customer/type, description, sale/payment amount, credit/debit, note and running balance.
-3. Confirm sale transactions show Download and Share invoice actions at the lower right and non-sale transactions do not show misleading invoice actions.
-4. Trigger low stock and confirm one orange alert appears on Dashboard, Stock and Notifications.
-5. Change stock while it remains below the same threshold and confirm duplicate active alerts are not created.
-6. Receive enough stock and confirm the alert resolves.
+3. Confirm primary Sale and Purchase transactions show View, Download and Share image-receipt actions at the lower right. Confirm payment/credit rows do not show misleading receipt actions.
+4. Open View for both record types and confirm each receipt is readable without downloading.
+5. Trigger low stock and confirm one orange alert appears on Dashboard, Stock and Notifications.
+6. Change stock while it remains below the same threshold and confirm duplicate active alerts are not created.
+7. Receive enough stock and confirm the alert resolves.
 
 ## SMS
 
@@ -144,8 +182,8 @@ Repeat for both customer types:
 ## Reports
 
 1. Generate Today, Weekly, Monthly and a Custom report.
-2. Open View Details and inspect sales, financial position, stock, Traders and Agents.
-3. Confirm product sold/received/current/low-stock lists and daily breakdowns.
+2. Open View Details and inspect sales, gross profit, financial position, Factory-scoped stock, Traders and Agents.
+3. Confirm Product sold/received/current/low-stock lists name the Factory, and verify actual negotiated sale prices feed the sales/profit totals.
 4. Confirm Trader/Agent sales, payments, new/outstanding balances, top lists and transaction histories.
 5. Search historical reports by type/date and open an older version.
 6. Download/share both PDF and Excel.
@@ -175,6 +213,7 @@ npm install
 npx expo install --check
 npx expo-doctor@latest
 npm run ui-check
+npm run localization-check
 npm run typecheck
 npx expo export --platform android
 npx expo export --platform web

@@ -1,9 +1,11 @@
 import React, { useCallback, useState } from 'react';
-import { Alert, Pressable, StyleSheet, Text, View } from 'react-native';
-import { useFocusEffect } from 'expo-router';
+import { Pressable, StyleSheet, View } from 'react-native';
+import { localizedAlert, Text } from '@/i18n';
+import { router, useFocusEffect } from 'expo-router';
 import { Badge, Card, Icon, Loading, Message, Money, Screen, SearchField, Title } from '@/components/ui';
 import { cachedGet, errorMessage } from '@/lib/api';
-import { downloadSaleInvoice, shareSaleInvoice } from '@/lib/invoices';
+import { downloadTransactionReceipt, shareTransactionReceipt } from '@/lib/invoices';
+import type { ReceiptKind } from '@/lib/invoices';
 import { colors, radius, spacing } from '@/theme';
 import type { Paginated, Transaction } from '@/types';
 
@@ -32,16 +34,16 @@ export default function TransactionsScreen() {
   }, [query, type]);
   useFocusEffect(useCallback(() => { load(); }, [load]));
 
-  const runInvoiceAction = async (saleId: string, action: 'download' | 'share') => {
-    const busyKey = `${action}:${saleId}`;
+  const runReceiptAction = async (kind: ReceiptKind, documentId: string, action: 'download' | 'share') => {
+    const busyKey = `${action}:${kind}:${documentId}`;
     setInvoiceBusy(busyKey);
     setError('');
     try {
       if (action === 'share') {
-        await shareSaleInvoice(saleId);
+        await shareTransactionReceipt(kind, documentId);
       } else {
-        const saved = await downloadSaleInvoice(saleId);
-        if (saved) Alert.alert('Invoice downloaded', 'The PDF invoice was saved in the folder you selected.');
+        const saved = await downloadTransactionReceipt(kind, documentId);
+        if (saved) localizedAlert('Receipt saved', 'The PNG receipt image was saved in the folder you selected.');
       }
     } catch (nextError) {
       setError(errorMessage(nextError));
@@ -58,9 +60,16 @@ export default function TransactionsScreen() {
       {loading ? <Loading /> : items.length ? (
         <Card style={styles.listCard}>
           {items.map((item, index) => {
-            const debit = item.credit_debit === 'debit';
+            const walkInSale = item.transaction_type === 'sale' && item.party_type === 'walk_in';
+            const debit = !walkInSale && item.credit_debit === 'debit';
             const color = debit ? colors.danger : colors.success;
             const background = debit ? colors.dangerSoft : colors.successSoft;
+            const receiptKind: ReceiptKind | null = item.transaction_type === 'sale' && item.sale
+              ? 'sale'
+              : item.transaction_type === 'purchase' && item.purchase
+                ? 'purchase'
+                : null;
+            const receiptId = receiptKind === 'sale' ? item.sale : receiptKind === 'purchase' ? item.purchase : null;
             return (
               <View key={item.id} style={[styles.transaction, index > 0 && styles.borderTop]}>
                 <View style={styles.transactionMain}>
@@ -70,21 +79,27 @@ export default function TransactionsScreen() {
                     <Text style={styles.description}>{item.description}</Text>
                     <Text style={styles.small}>{new Date(item.created_at).toLocaleString()} · {item.transaction_type}</Text>
                     {item.note ? <Text style={styles.note}>Note: {item.note}</Text> : null}
-                    <View style={styles.meta}><Text style={styles.metaText}>Sale {Number(item.sale_amount).toFixed(2)}</Text><Text style={styles.metaText}>Payment {Number(item.payment_amount).toFixed(2)}</Text><Text style={styles.balance}>Balance {Number(item.running_balance).toFixed(2)} ETB</Text></View>
+                    <View style={styles.meta}><Text style={styles.metaText}>Sale {Number(item.sale_amount).toFixed(2)}</Text><Text style={styles.metaText}>Payment {Number(item.payment_amount).toFixed(2)}</Text><Text style={styles.balance}>{walkInSale ? 'Paid in full' : `Balance ${Number(item.running_balance).toFixed(2)} ETB`}</Text></View>
                   </View>
-                  <View style={styles.right}><Money value={Math.abs(Number(item.delta))} color={color} size="small" /><Text style={[styles.direction, { color }]}>{debit ? 'DEBIT · OWES ME' : 'CREDIT · PAYMENT'}</Text></View>
+                  <View style={styles.right}><Money value={walkInSale ? item.sale_amount : Math.abs(Number(item.delta))} color={color} size="small" /><Text style={[styles.direction, { color }]}>{walkInSale ? 'PAID · WALK-IN' : debit ? 'DEBIT · OWES ME' : 'CREDIT · PAYMENT'}</Text></View>
                 </View>
-                {item.sale && item.transaction_type === 'sale' ? (
+                {receiptKind && receiptId ? (
                   <View style={styles.invoiceActions}>
-                    <Text style={styles.invoiceLabel}>SALE INVOICE</Text>
-                    <Pressable disabled={Boolean(invoiceBusy)} onPress={() => runInvoiceAction(item.sale!, 'download')} style={({ pressed }) => [styles.invoiceButton, pressed && styles.pressed]}>
-                      <Icon name="download-outline" size={17} color={colors.primary} />
-                      <Text style={styles.invoiceButtonText}>{invoiceBusy === `download:${item.sale}` ? 'Saving…' : 'Download'}</Text>
-                    </Pressable>
-                    <Pressable disabled={Boolean(invoiceBusy)} onPress={() => runInvoiceAction(item.sale!, 'share')} style={({ pressed }) => [styles.invoiceButton, pressed && styles.pressed]}>
-                      <Icon name="share-social-outline" size={17} color={colors.primary} />
-                      <Text style={styles.invoiceButtonText}>{invoiceBusy === `share:${item.sale}` ? 'Opening…' : 'Share'}</Text>
-                    </Pressable>
+                    <Text style={styles.invoiceLabel}>{receiptKind === 'sale' ? 'SALE RECEIPT' : 'PURCHASE RECEIPT'} · IMAGE</Text>
+                    <View style={styles.receiptButtons}>
+                      <Pressable onPress={() => router.push({ pathname: '/receipt-view', params: { kind: receiptKind, documentId: receiptId } })} style={({ pressed }) => [styles.invoiceButton, pressed && styles.pressed]}>
+                        <Icon name="eye-outline" size={17} color={colors.primary} />
+                        <Text style={styles.invoiceButtonText}>View</Text>
+                      </Pressable>
+                      <Pressable disabled={Boolean(invoiceBusy)} onPress={() => runReceiptAction(receiptKind, receiptId, 'download')} style={({ pressed }) => [styles.invoiceButton, pressed && styles.pressed]}>
+                        <Icon name="download-outline" size={17} color={colors.primary} />
+                        <Text style={styles.invoiceButtonText}>{invoiceBusy === `download:${receiptKind}:${receiptId}` ? 'Saving…' : 'Download'}</Text>
+                      </Pressable>
+                      <Pressable disabled={Boolean(invoiceBusy)} onPress={() => runReceiptAction(receiptKind, receiptId, 'share')} style={({ pressed }) => [styles.invoiceButton, pressed && styles.pressed]}>
+                        <Icon name="share-social-outline" size={17} color={colors.primary} />
+                        <Text style={styles.invoiceButtonText}>{invoiceBusy === `share:${receiptKind}:${receiptId}` ? 'Opening…' : 'Share'}</Text>
+                      </Pressable>
+                    </View>
                   </View>
                 ) : null}
               </View>
@@ -126,9 +141,10 @@ const styles = StyleSheet.create({
   meta: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm, marginTop: spacing.sm },
   metaText: { color: colors.muted, fontSize: 9, fontWeight: '700' },
   balance: { color: colors.text, fontSize: 9, fontWeight: '900' },
-  invoiceActions: { flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', gap: spacing.sm, paddingTop: spacing.sm, borderTopWidth: 1, borderTopColor: colors.border },
-  invoiceLabel: { marginRight: 'auto', color: colors.muted, fontSize: 9, fontWeight: '900', letterSpacing: 0.45 },
-  invoiceButton: { minHeight: 36, flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 11, borderRadius: radius.sm, backgroundColor: colors.primarySoft, borderWidth: 1, borderColor: colors.primaryBorder },
+  invoiceActions: { gap: spacing.sm, paddingTop: spacing.sm, borderTopWidth: 1, borderTopColor: colors.border },
+  invoiceLabel: { color: colors.muted, fontSize: 9, fontWeight: '900', letterSpacing: 0.45 },
+  receiptButtons: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
+  invoiceButton: { minHeight: 40, flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 5, paddingHorizontal: 7, borderRadius: radius.sm, backgroundColor: colors.primarySoft, borderWidth: 1, borderColor: colors.primaryBorder },
   invoiceButtonText: { color: colors.primary, fontSize: 11, fontWeight: '900' },
   pressed: { opacity: 0.65 },
 });

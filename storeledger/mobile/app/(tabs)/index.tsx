@@ -1,5 +1,6 @@
 import React, { useCallback, useState } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, View } from 'react-native';
+import { LanguageSwitch, Text, useI18n } from '@/i18n';
 import { router, useFocusEffect } from 'expo-router';
 import { useAuth } from '@/auth/AuthContext';
 import { Badge, Button, Card, Icon, IconButton, IconName, Loading, Message, Money, Screen, SearchField, SectionHeader } from '@/components/ui';
@@ -66,7 +67,10 @@ export default function DashboardScreen() {
             <Text style={styles.storeName}>{store?.name || 'StoreLedger'}</Text>
             <Text style={styles.heroSubtitle}>Here is today&apos;s business overview.</Text>
           </View>
-          <IconButton icon="notifications-outline" label="Open notifications" variant="plain" onPress={() => router.push('/notifications')} />
+          <View style={styles.heroActions}>
+            <LanguageSwitch onDark />
+            <IconButton icon="notifications-outline" label="Open notifications" variant="plain" onPress={() => router.push('/notifications')} />
+          </View>
         </View>
         <SearchField value={searchQuery} onChangeText={setSearchQuery} onSubmitEditing={openSearch} placeholder="Search products, people, sales, expenses…" />
       </View>
@@ -124,7 +128,7 @@ export default function DashboardScreen() {
           {data.low_stock.map(product => (
             <View key={product.id} style={styles.listRow}>
               <View style={styles.avatarWarning}><Icon name="cube-outline" size={19} color={colors.warning} /></View>
-              <View style={styles.flex}><Text style={styles.rowLabel}>{product.name}</Text><Text style={styles.small}>{product.sku} · {product.unit}</Text></View>
+              <View style={styles.flex}><Text style={styles.rowLabel}>{product.name}</Text><Text style={styles.small}>Factory {product.factory_name} · {product.unit}</Text></View>
               <Badge label={`${product.current_quantity} left`} tone="warning" />
             </View>
           ))}
@@ -134,12 +138,13 @@ export default function DashboardScreen() {
       <Card>
         <SectionHeader title="Recent Transactions" action={<Pressable onPress={() => router.push('/transactions')}><Text style={styles.link}>View all</Text></Pressable>} />
         {data?.recent_transactions?.length ? data.recent_transactions.map(item => {
-          const debit = Number(item.delta) > 0;
+          const walkInSale = item.transaction_type === 'sale' && item.party_type === 'walk_in';
+          const debit = !walkInSale && Number(item.delta) > 0;
           return (
             <View key={item.id} style={styles.listRow}>
-              <View style={[styles.transactionIcon, { backgroundColor: debit ? colors.dangerSoft : colors.successSoft }]}><Icon name={debit ? 'arrow-down-outline' : 'arrow-up-outline'} size={18} color={debit ? colors.danger : colors.success} /></View>
+              <View style={[styles.transactionIcon, { backgroundColor: debit ? colors.dangerSoft : colors.successSoft }]}><Icon name={walkInSale ? 'cart-outline' : debit ? 'arrow-down-outline' : 'arrow-up-outline'} size={18} color={debit ? colors.danger : colors.success} /></View>
               <View style={styles.flex}><Text style={styles.rowLabel}>{item.party_name}</Text><Text style={styles.small} numberOfLines={1}>{item.description}</Text></View>
-              <Money value={Math.abs(Number(item.delta))} currency={data.currency} color={debit ? colors.danger : colors.success} size="small" />
+              <Money value={walkInSale ? item.sale_amount : Math.abs(Number(item.delta))} currency={data.currency} color={debit ? colors.danger : colors.success} size="small" />
             </View>
           );
         }) : <Text style={styles.emptyText}>No transactions yet.</Text>}
@@ -169,9 +174,10 @@ function toneBackground(tone: Tone) {
 }
 
 function SummaryCard({ kind, label, value, currency = 'ETB', icon, tone = 'neutral' }: { kind: DashboardDetailKind; label: string; value: string; currency?: string; icon: IconName; tone?: Tone }) {
+  const { t } = useI18n();
   const color = toneColor(tone);
   return (
-    <Pressable accessibilityRole="button" accessibilityLabel={`${label}. Open details.`} onPress={() => openDashboardDetail(kind)} style={({ pressed }) => [styles.summaryPressable, pressed && styles.pressed]}>
+    <Pressable accessibilityRole="button" accessibilityLabel={t(`${label}. Open details.`)} onPress={() => openDashboardDetail(kind)} style={({ pressed }) => [styles.summaryPressable, pressed && styles.pressed]}>
       <Card style={styles.summaryCard}>
         <View style={[styles.metricIcon, { backgroundColor: toneBackground(tone) }]}><Icon name={icon} size={17} color={color} /></View>
         <Text style={styles.metricLabel}>{label}</Text>
@@ -183,8 +189,9 @@ function SummaryCard({ kind, label, value, currency = 'ETB', icon, tone = 'neutr
 }
 
 function SummaryCountCard({ kind, label, value }: { kind: DashboardDetailKind; label: string; value: number }) {
+  const { t } = useI18n();
   return (
-    <Pressable accessibilityRole="button" accessibilityLabel={`${label}. Open details.`} onPress={() => openDashboardDetail(kind)} style={({ pressed }) => [styles.summaryWide, pressed && styles.pressed]}>
+    <Pressable accessibilityRole="button" accessibilityLabel={t(`${label}. Open details.`)} onPress={() => openDashboardDetail(kind)} style={({ pressed }) => [styles.summaryWide, pressed && styles.pressed]}>
       <Card style={styles.countCard}>
         <View style={styles.headerWithIcon}>
           <View style={styles.metricIcon}><Icon name="swap-horizontal-outline" size={17} color={colors.primary} /></View>
@@ -244,6 +251,7 @@ const styles = StyleSheet.create({
   hero: { backgroundColor: colors.primaryButton, borderBottomLeftRadius: radius.xl, borderBottomRightRadius: radius.xl, marginHorizontal: -spacing.md, paddingHorizontal: spacing.md, paddingTop: spacing.mdSm, paddingBottom: spacing.md, gap: spacing.mdSm, ...shadow.card },
   heroTop: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: spacing.md },
   heroCopy: { flex: 1, gap: 2 },
+  heroActions: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
   greeting: { color: colors.onPrimary, opacity: 0.84, fontSize: 13, fontWeight: '700' },
   storeName: { color: colors.onPrimary, fontSize: 23, lineHeight: 28, fontWeight: '900', letterSpacing: -0.4 },
   heroSubtitle: { color: colors.onPrimary, opacity: 0.78, fontSize: 13 },

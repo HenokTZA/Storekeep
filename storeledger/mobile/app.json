@@ -3,7 +3,7 @@
     "name": "StoreLedger",
     "slug": "storeledger",
     "owner": "henoktza",
-    "version": "1.6.0",
+    "version": "2.0.0",
     "orientation": "portrait",
     "scheme": "storeledger",
     "userInterfaceStyle": "light",

@@ -1,5 +1,6 @@
 import React, { useCallback, useState } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, View } from 'react-native';
+import { Text } from '@/i18n';
 import { useFocusEffect } from 'expo-router';
 import { Badge, Card, Icon, Loading, Message, Screen, Title } from '@/components/ui';
 import { apiFetch, cachedGet, errorMessage } from '@/lib/api';

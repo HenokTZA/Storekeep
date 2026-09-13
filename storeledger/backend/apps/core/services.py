@@ -14,6 +14,7 @@ from django.db.models.functions import Coalesce
 from django.db.models.functions import TruncDate
 from django.utils import timezone
 from openpyxl import Workbook
+from PIL import Image, ImageDraw, ImageFont, PngImagePlugin
 from reportlab.lib import colors as pdf_colors
 from reportlab.lib.pagesizes import A4
 from reportlab.pdfgen import canvas
@@ -49,7 +50,7 @@ def money(value) -> Decimal:
 
 
 def agent_selling_price(value) -> Decimal:
-    """Return the mandatory agent price: 1.5% below the product selling price."""
+    """Return the default Agent price: 1.5% below the Product selling price."""
     return money(Decimal(str(value)) * (Decimal("1.00") - AGENT_DISCOUNT_RATE))
 
 
@@ -96,6 +97,7 @@ class InventoryService:
         movement = StockMovement.objects.create(
             store=store,
             product=product,
+            factory_name=product.factory.name,
             movement_type=movement_type,
             quantity_delta=delta,
             balance_after=new_quantity,
@@ -144,6 +146,8 @@ class SaleService:
             customer = Party.objects.select_for_update().filter(store=store, is_active=True, id=customer_id).first()
             if not customer:
                 raise ValidationError({"customer_id": "Customer was not found in this store."})
+            if customer.party_type == Party.PartyType.FACTORY:
+                raise ValidationError({"customer_id": "Factories are purchase suppliers and cannot be sale customers."})
 
         seen_products = set()
         prepared_items = []
@@ -153,25 +157,34 @@ class SaleService:
             if product_id in seen_products:
                 raise ValidationError({"items": "A product may only appear once in a sale."})
             seen_products.add(product_id)
-            product = Product.objects.filter(store=store, is_active=True, id=product_id).first()
+            product = Product.objects.select_related("factory").filter(store=store, is_active=True, id=product_id).first()
             if not product:
                 raise ValidationError({"items": f"Product {product_id} was not found."})
             item_quantity = quantity(item.get("quantity", 0))
             if item_quantity <= 0:
                 raise ValidationError({"items": "Every quantity must be greater than zero."})
-            if customer and customer.party_type == Party.PartyType.AGENT:
-                # Agent pricing is a store rule, so the API calculates it from
-                # the saved product price instead of trusting a phone-supplied
-                # unit price.
+            if item.get("unit_price") is not None:
+                # A negotiated price is a snapshot for this sale item only. It
+                # applies to Traders, Agents and walk-in customers, and never
+                # changes the product's standard selling price.
+                unit_price = money(item["unit_price"])
+            elif customer and customer.party_type == Party.PartyType.AGENT:
                 unit_price = agent_selling_price(product.selling_price)
             else:
-                unit_price = money(item.get("unit_price", product.selling_price))
+                # Walk-in and Trader sales default to the standard price but
+                # may explicitly override it above for one transaction.
+                unit_price = money(product.selling_price)
             if unit_price < 0:
                 raise ValidationError({"items": "Unit price cannot be negative."})
             pieces_per_unit = product.pieces_per_unit
             line_total = money(item_quantity * pieces_per_unit * unit_price)
+            unit_cost = money(product.purchase_price)
+            line_cost = money(item_quantity * pieces_per_unit * unit_cost)
+            gross_profit = money(line_total - line_cost)
             total += line_total
-            prepared_items.append((product, item_quantity, pieces_per_unit, unit_price, line_total))
+            prepared_items.append(
+                (product, item_quantity, pieces_per_unit, unit_price, line_total, unit_cost, line_cost, gross_profit)
+            )
 
         total = money(total)
         amount_paid = money(amount_paid)
@@ -192,16 +205,19 @@ class SaleService:
             created_by=user,
         )
 
-        for product, item_quantity, pieces_per_unit, unit_price, line_total in prepared_items:
+        for product, item_quantity, pieces_per_unit, unit_price, line_total, unit_cost, line_cost, gross_profit in prepared_items:
             SaleItem.objects.create(
                 sale=sale,
                 product=product,
                 product_name=product.name,
-                sku=product.sku,
+                factory_name=product.factory.name,
                 quantity=item_quantity,
                 pieces_per_unit=pieces_per_unit,
                 unit_price=unit_price,
                 line_total=line_total,
+                unit_cost=unit_cost,
+                line_cost=line_cost,
+                gross_profit=gross_profit,
             )
             InventoryService.adjust(
                 store=store,
@@ -356,7 +372,7 @@ class SaleInvoiceService:
             pdf.setFont("Helvetica-Bold", 8.5)
             pdf.drawString(left + 5, y, clean(item.product_name, 34))
             pdf.setFont("Helvetica", 7.5)
-            pdf.drawString(left + 5, y - 12, clean(item.sku, 28))
+            pdf.drawString(left + 5, y - 12, clean(f"Factory: {item.factory_name}", 34))
             pdf.drawRightString(308, y - 2, f"{item.quantity:g}")
             pdf.drawRightString(365, y - 2, str(item.pieces_per_unit))
             pdf.drawRightString(423, y - 2, f"{total_pieces:g}")
@@ -379,18 +395,27 @@ class SaleInvoiceService:
             y = page_height - 198
 
         summary_top = y - 8
+        total_balance = TransactionReceiptService._balance_after(
+            sale,
+            sale.outstanding if sale.customer else ZERO,
+        )
         pdf.setFillColor(pdf_colors.HexColor("#F4F8F6"))
-        pdf.roundRect(326, summary_top - 92, right - 326, 92, 7, fill=1, stroke=0)
+        pdf.roundRect(310, summary_top - 116, right - 310, 116, 7, fill=1, stroke=0)
         pdf.setFillColor(pdf_colors.HexColor("#4F625B"))
         pdf.setFont("Helvetica", 9)
-        pdf.drawString(340, summary_top - 20, "Subtotal")
-        pdf.drawString(340, summary_top - 41, "Amount paid")
-        pdf.drawString(340, summary_top - 62, "Outstanding")
+        pdf.drawString(324, summary_top - 20, "Subtotal")
+        pdf.drawString(324, summary_top - 41, "Amount paid")
+        pdf.drawString(324, summary_top - 62, "This sale outstanding")
+        total_balance_label = "Total outstanding" if total_balance >= 0 else "Total customer credit"
+        pdf.setFont("Helvetica-Bold", 9)
+        pdf.drawString(324, summary_top - 88, total_balance_label)
         pdf.setFillColor(pdf_colors.HexColor("#16251F"))
         pdf.drawRightString(right - 12, summary_top - 20, amount(sale.subtotal))
         pdf.drawRightString(right - 12, summary_top - 41, amount(sale.amount_paid))
         pdf.setFont("Helvetica-Bold", 10)
         pdf.drawRightString(right - 12, summary_top - 62, amount(sale.outstanding))
+        pdf.setFillColor(pdf_colors.HexColor("#A83B32") if total_balance > 0 else pdf_colors.HexColor("#176B54"))
+        pdf.drawRightString(right - 12, summary_top - 88, amount(abs(total_balance)))
         pdf.setFont("Helvetica", 7.5)
         pdf.setFillColor(pdf_colors.HexColor("#63736D"))
         pdf.drawString(left, summary_top - 20, "Quantity is shown in sale units/packs.")
@@ -400,6 +425,344 @@ class SaleInvoiceService:
         pdf.drawCentredString(page_width / 2, 24, f"{invoice_number} · Page {page_number}")
         pdf.save()
         return buffer.getvalue()
+
+
+class TransactionReceiptService:
+    """Render sale and purchase snapshots as high-resolution PNG receipts."""
+
+    WIDTH = 1240
+    PRIMARY = "#176B54"
+    PRIMARY_SOFT = "#E7F3EE"
+    BACKGROUND = "#F4F8F6"
+    TEXT = "#16251F"
+    MUTED = "#52645D"
+    BORDER = "#D7E1DD"
+    DANGER = "#A83B32"
+    AMHARIC_LABELS = {
+        "SALE RECEIPT": "የሽያጭ ደረሰኝ",
+        "PURCHASE RECEIPT": "የግዢ ደረሰኝ",
+        "RECEIPT NUMBER": "የደረሰኝ ቁጥር",
+        "DATE": "ቀን",
+        "STATUS": "ሁኔታ",
+        "RECORDED BY": "የመዘገበው",
+        "COMPLETED": "ተጠናቋል",
+        "BILL TO": "ለ",
+        "PURCHASED FROM": "የተገዛበት",
+        "PRODUCT DETAILS": "የምርት ዝርዝር",
+        "SALE AMOUNT": "የሽያጭ መጠን",
+        "PURCHASE AMOUNT": "የግዢ መጠን",
+        "Factory": "ፋብሪካ",
+        "units": "ዩኒቶች",
+        "pcs/unit": "ቁራጭ/ዩኒት",
+        "pc": "ቁራጭ",
+        "total pieces": "ጠቅላላ ቁራጮች",
+        "TOTAL": "ጠቅላላ",
+        "AMOUNT PAID": "የተከፈለ",
+        "THIS SALE OUTSTANDING": "የዚህ ሽያጭ ቀሪ ዕዳ",
+        "THIS PURCHASE OUTSTANDING": "የዚህ ግዢ ቀሪ ዕዳ",
+        "TOTAL OUTSTANDING": "ጠቅላላ ቀሪ ዕዳ",
+        "TOTAL CUSTOMER CREDIT": "ጠቅላላ የደንበኛ ክሬዲት",
+        "TOTAL OWED TO FACTORY": "ለፋብሪካ ጠቅላላ የሚከፈል",
+        "TOTAL FACTORY OWES": "ፋብሪካው ጠቅላላ የሚከፍለው",
+        "REFERENCE / INVOICE": "ማጣቀሻ / ደረሰኝ",
+        "NOTE": "ማስታወሻ",
+        "Generated securely by StoreLedger": "በStoreLedger በደህንነት የተዘጋጀ",
+        "Walk-in customer": "ያልተመዘገበ ደንበኛ",
+    }
+
+    @staticmethod
+    def sale_number(sale: Sale) -> str:
+        local_created = timezone.localtime(sale.created_at, ZoneInfo(sale.store.timezone))
+        return f"SL-{local_created:%Y%m%d}-{str(sale.id)[:8].upper()}"
+
+    @staticmethod
+    def purchase_number(purchase: Purchase) -> str:
+        return f"PL-{purchase.purchase_date:%Y%m%d}-{str(purchase.id)[:8].upper()}"
+
+    @staticmethod
+    def filename(kind: str, document) -> str:
+        if kind == "sale":
+            number = TransactionReceiptService.sale_number(document)
+            label = "Sale"
+        else:
+            number = TransactionReceiptService.purchase_number(document)
+            label = "Purchase"
+        return f"StoreLedger-{label}-Receipt-{number}.png"
+
+    @staticmethod
+    def _font(size: int, bold: bool = False):
+        filename = "DejaVuSans-Bold.ttf" if bold else "DejaVuSans.ttf"
+        windows_filename = "arialbd.ttf" if bold else "arial.ttf"
+        candidates = (
+            Path(settings.BASE_DIR) / "assets" / "fonts" / "NotoSansEthiopic.ttf",
+            Path(settings.BASE_DIR) / "assets" / "fonts" / filename,
+            Path("/usr/share/fonts/truetype/dejavu") / filename,
+            Path("/usr/share/fonts/dejavu") / filename,
+            Path("C:/Windows/Fonts") / windows_filename,
+        )
+        for candidate in candidates:
+            try:
+                font = ImageFont.truetype(str(candidate), size=size)
+                if candidate.name == "NotoSansEthiopic.ttf":
+                    try:
+                        font.set_variation_by_name("Bold" if bold else "Regular")
+                    except (AttributeError, OSError):
+                        pass
+                return font
+            except OSError:
+                continue
+        try:
+            return ImageFont.load_default(size=size)
+        except TypeError:  # Pillow versions before the scalable default font.
+            return ImageFont.load_default()
+
+    @staticmethod
+    def _label(value: str, language: str) -> str:
+        if language == "am":
+            return TransactionReceiptService.AMHARIC_LABELS.get(value, value)
+        return value
+
+    @staticmethod
+    def _quantity_text(value) -> str:
+        result = f"{Decimal(str(value)):f}".rstrip("0").rstrip(".")
+        return result or "0"
+
+    @staticmethod
+    def _balance_after(document, fallback) -> Decimal:
+        entry = document.ledger_entries.order_by("-created_at", "-id").first()
+        return money(entry.running_balance if entry else fallback)
+
+    @staticmethod
+    def _wrap(draw, text, font, max_width):
+        words = str(text or "").replace("\n", " ").split()
+        if not words:
+            return []
+        lines = []
+        current = words[0]
+        for word in words[1:]:
+            candidate = f"{current} {word}"
+            if draw.textbbox((0, 0), candidate, font=font)[2] <= max_width:
+                current = candidate
+            else:
+                lines.append(current)
+                current = word
+        lines.append(current)
+        return lines
+
+    @staticmethod
+    def _render(*, kind, store, number, counterparty_name, counterparty_phone, created_at,
+                cashier, status, items, total, amount_paid, outstanding, total_balance,
+                reference="", note="", language="en") -> bytes:
+        width = TransactionReceiptService.WIDTH
+        margin = 64
+        row_height = 132
+        probe = Image.new("RGB", (width, 100), "white")
+        probe_draw = ImageDraw.Draw(probe)
+        note_font = TransactionReceiptService._font(25, bold=True)
+        note_lines = TransactionReceiptService._wrap(probe_draw, note, note_font, width - (margin * 2) - 48)[:4]
+        notes_height = (len(note_lines) * 36 + 94 if note_lines else 0) + (76 if reference else 0)
+        height = max(1420, 1220 + len(items) * row_height + notes_height)
+        image = Image.new("RGBA", (width, height), TransactionReceiptService.BACKGROUND)
+        draw = ImageDraw.Draw(image)
+
+        title_font = TransactionReceiptService._font(50, bold=True)
+        store_font = TransactionReceiptService._font(35, bold=True)
+        heading_font = TransactionReceiptService._font(29, bold=True)
+        label_font = TransactionReceiptService._font(21, bold=True)
+        body_font = TransactionReceiptService._font(25, bold=True)
+        small_font = TransactionReceiptService._font(20, bold=True)
+        amount_font = TransactionReceiptService._font(30, bold=True)
+        total_font = TransactionReceiptService._font(35, bold=True)
+
+        draw.rectangle((0, 0, width, 238), fill=TransactionReceiptService.PRIMARY)
+        title = TransactionReceiptService._label("SALE RECEIPT" if kind == "sale" else "PURCHASE RECEIPT", language)
+        draw.text((margin, 66), title, fill="white", font=title_font)
+        store_name = str(store.name)[:42]
+        store_box = draw.textbbox((0, 0), store_name, font=store_font)
+        if store_box[2] - store_box[0] > 620:
+            store_font = TransactionReceiptService._font(28, bold=True)
+            store_box = draw.textbbox((0, 0), store_name, font=store_font)
+        draw.text((width - margin - (store_box[2] - store_box[0]), 72), store_name, fill="white", font=store_font)
+        if store.phone:
+            phone_box = draw.textbbox((0, 0), store.phone, font=small_font)
+            draw.text((width - margin - (phone_box[2] - phone_box[0]), 126), store.phone, fill="white", font=small_font)
+        if store.address:
+            address = str(store.address).replace("\n", " ")[:64]
+            address_box = draw.textbbox((0, 0), address, font=small_font)
+            draw.text((width - margin - (address_box[2] - address_box[0]), 164), address, fill="white", font=small_font)
+
+        y = 276
+        draw.rounded_rectangle((margin, y, width - margin, y + 226), radius=24, fill="white", outline=TransactionReceiptService.BORDER, width=2)
+        draw.text((margin + 30, y + 28), TransactionReceiptService._label("RECEIPT NUMBER", language), fill=TransactionReceiptService.MUTED, font=label_font)
+        draw.text((margin + 30, y + 65), number, fill=TransactionReceiptService.TEXT, font=body_font)
+        draw.text((margin + 30, y + 116), TransactionReceiptService._label("DATE", language), fill=TransactionReceiptService.MUTED, font=label_font)
+        draw.text((margin + 30, y + 153), created_at, fill=TransactionReceiptService.TEXT, font=body_font)
+        right_x = width // 2 + 52
+        draw.text((right_x, y + 28), TransactionReceiptService._label("STATUS", language), fill=TransactionReceiptService.MUTED, font=label_font)
+        draw.text((right_x, y + 65), TransactionReceiptService._label(status.upper(), language), fill=TransactionReceiptService.PRIMARY, font=body_font)
+        draw.text((right_x, y + 116), TransactionReceiptService._label("RECORDED BY", language), fill=TransactionReceiptService.MUTED, font=label_font)
+        draw.text((right_x, y + 153), cashier, fill=TransactionReceiptService.TEXT, font=body_font)
+
+        y += 258
+        party_label = TransactionReceiptService._label("BILL TO" if kind == "sale" else "PURCHASED FROM", language)
+        draw.text((margin, y), party_label, fill=TransactionReceiptService.PRIMARY, font=label_font)
+        draw.text((margin, y + 38), counterparty_name, fill=TransactionReceiptService.TEXT, font=heading_font)
+        if counterparty_phone:
+            draw.text((margin, y + 80), counterparty_phone, fill=TransactionReceiptService.MUTED, font=small_font)
+        y += 130
+
+        items_top = y
+        items_bottom = y + 72 + len(items) * row_height
+        draw.rounded_rectangle((margin, items_top, width - margin, items_bottom), radius=24, fill="white", outline=TransactionReceiptService.BORDER, width=2)
+        draw.rounded_rectangle((margin, items_top, width - margin, items_top + 72), radius=24, fill=TransactionReceiptService.PRIMARY_SOFT)
+        draw.rectangle((margin, items_top + 48, width - margin, items_top + 72), fill=TransactionReceiptService.PRIMARY_SOFT)
+        draw.text((margin + 28, items_top + 20), TransactionReceiptService._label("PRODUCT DETAILS", language), fill=TransactionReceiptService.PRIMARY, font=label_font)
+        amount_header = TransactionReceiptService._label("SALE AMOUNT" if kind == "sale" else "PURCHASE AMOUNT", language)
+        amount_header_box = draw.textbbox((0, 0), amount_header, font=label_font)
+        draw.text((width - margin - 28 - (amount_header_box[2] - amount_header_box[0]), items_top + 20), amount_header, fill=TransactionReceiptService.PRIMARY, font=label_font)
+        row_y = items_top + 72
+        for index, item in enumerate(items):
+            if index:
+                draw.line((margin + 24, row_y, width - margin - 24, row_y), fill=TransactionReceiptService.BORDER, width=2)
+            product_name = str(item["product_name"])[:52]
+            draw.text((margin + 28, row_y + 18), product_name, fill=TransactionReceiptService.TEXT, font=body_font)
+            amount_text = f"{money(item['line_total']):,.2f} {store.currency}"
+            amount_box = draw.textbbox((0, 0), amount_text, font=amount_font)
+            draw.text((width - margin - 28 - (amount_box[2] - amount_box[0]), row_y + 17), amount_text, fill=TransactionReceiptService.TEXT, font=amount_font)
+            factory_label = TransactionReceiptService._label("Factory", language)
+            draw.text((margin + 28, row_y + 59), f"{factory_label}: {str(item['factory_name'])[:44]}", fill=TransactionReceiptService.PRIMARY, font=small_font)
+            units = TransactionReceiptService._quantity_text(item["quantity"])
+            pieces = TransactionReceiptService._quantity_text(Decimal(str(item["quantity"])) * int(item["pieces_per_unit"]))
+            units_label = TransactionReceiptService._label("units", language)
+            pack_label = TransactionReceiptService._label("pcs/unit", language)
+            piece_label = TransactionReceiptService._label("pc", language)
+            total_pieces_label = TransactionReceiptService._label("total pieces", language)
+            calculation = f"{units} {units_label} x {item['pieces_per_unit']} {pack_label} x {money(item['unit_rate']):,.2f} {store.currency}/{piece_label}"
+            draw.text((margin + 28, row_y + 94), f"{calculation}  |  {pieces} {total_pieces_label}", fill=TransactionReceiptService.MUTED, font=small_font)
+            row_y += row_height
+        y = items_bottom + 34
+
+        summary_height = 302
+        draw.rounded_rectangle((margin, y, width - margin, y + summary_height), radius=24, fill="white", outline=TransactionReceiptService.BORDER, width=2)
+        transaction_label = TransactionReceiptService._label("THIS SALE OUTSTANDING" if kind == "sale" else "THIS PURCHASE OUTSTANDING", language)
+        labels = [TransactionReceiptService._label("TOTAL", language), TransactionReceiptService._label("AMOUNT PAID", language), transaction_label]
+        values = [total, amount_paid, abs(outstanding)]
+        for index, (label, value) in enumerate(zip(labels, values)):
+            row = y + 30 + index * 58
+            draw.text((margin + 30, row), label, fill=TransactionReceiptService.MUTED, font=label_font)
+            value_text = f"{money(value):,.2f} {store.currency}"
+            value_box = draw.textbbox((0, 0), value_text, font=amount_font)
+            draw.text((width - margin - 30 - (value_box[2] - value_box[0]), row - 4), value_text, fill=TransactionReceiptService.TEXT, font=amount_font)
+        if kind == "sale":
+            balance_label = TransactionReceiptService._label("TOTAL OUTSTANDING" if total_balance >= 0 else "TOTAL CUSTOMER CREDIT", language)
+            balance_color = TransactionReceiptService.DANGER if total_balance > 0 else TransactionReceiptService.PRIMARY
+        else:
+            balance_label = TransactionReceiptService._label("TOTAL OWED TO FACTORY" if total_balance <= 0 else "TOTAL FACTORY OWES", language)
+            balance_color = TransactionReceiptService.DANGER if total_balance < 0 else TransactionReceiptService.PRIMARY
+        draw.rounded_rectangle((margin + 22, y + 204, width - margin - 22, y + 278), radius=18, fill=TransactionReceiptService.PRIMARY_SOFT)
+        draw.text((margin + 46, y + 226), balance_label, fill=balance_color, font=body_font)
+        balance_text = f"{abs(money(total_balance)):,.2f} {store.currency}"
+        balance_box = draw.textbbox((0, 0), balance_text, font=total_font)
+        draw.text((width - margin - 46 - (balance_box[2] - balance_box[0]), y + 218), balance_text, fill=balance_color, font=total_font)
+        y += summary_height + 28
+
+        if reference:
+            draw.text((margin, y), TransactionReceiptService._label("REFERENCE / INVOICE", language), fill=TransactionReceiptService.PRIMARY, font=label_font)
+            draw.text((margin, y + 36), str(reference)[:90], fill=TransactionReceiptService.TEXT, font=body_font)
+            y += 76
+        if note_lines:
+            draw.text((margin, y), TransactionReceiptService._label("NOTE", language), fill=TransactionReceiptService.PRIMARY, font=label_font)
+            y += 38
+            for line in note_lines:
+                draw.text((margin, y), line, fill=TransactionReceiptService.TEXT, font=note_font)
+                y += 36
+
+        footer_y = height - 76
+        draw.line((margin, footer_y - 26, width - margin, footer_y - 26), fill=TransactionReceiptService.BORDER, width=2)
+        footer = TransactionReceiptService._label("Generated securely by StoreLedger", language)
+        footer_box = draw.textbbox((0, 0), footer, font=small_font)
+        draw.text(((width - (footer_box[2] - footer_box[0])) / 2, footer_y), footer, fill=TransactionReceiptService.MUTED, font=small_font)
+
+        watermark_font = TransactionReceiptService._font(82, bold=True)
+        watermark_text = store.name.upper()[:42]
+        watermark_box = draw.textbbox((0, 0), watermark_text, font=watermark_font)
+        tile = Image.new("RGBA", (max(900, watermark_box[2] + 120), 230), (255, 255, 255, 0))
+        tile_draw = ImageDraw.Draw(tile)
+        tile_draw.text((60, 60), watermark_text, font=watermark_font, fill=(23, 107, 84, 18))
+        rotated = tile.rotate(24, expand=True, resample=Image.Resampling.BICUBIC)
+        for watermark_y in range(290, height - 150, 520):
+            image.alpha_composite(rotated, ((width - rotated.width) // 2, watermark_y))
+
+        output = BytesIO()
+        metadata = PngImagePlugin.PngInfo()
+        metadata.add_text("Store", store.name)
+        metadata.add_text("Receipt", number)
+        metadata.add_text("Transaction Type", kind)
+        metadata.add_text("Transaction Outstanding", str(money(outstanding)))
+        metadata.add_text("Account Balance After", str(money(total_balance)))
+        metadata.add_text("Language", language)
+        image.convert("RGB").save(output, format="PNG", optimize=True, pnginfo=metadata)
+        return output.getvalue()
+
+    @staticmethod
+    def render_sale(sale: Sale, language: str = "en") -> bytes:
+        sale = Sale.objects.select_related("store", "customer", "created_by").prefetch_related("items", "ledger_entries").get(pk=sale.pk)
+        local_created = timezone.localtime(sale.created_at, ZoneInfo(sale.store.timezone))
+        total_balance = TransactionReceiptService._balance_after(sale, sale.outstanding if sale.customer else ZERO)
+        return TransactionReceiptService._render(
+            kind="sale",
+            store=sale.store,
+            number=TransactionReceiptService.sale_number(sale),
+            counterparty_name=sale.customer.name if sale.customer else TransactionReceiptService._label("Walk-in customer", language),
+            counterparty_phone=sale.customer.phone if sale.customer else "",
+            created_at=f"{local_created:%Y-%m-%d %H:%M}",
+            cashier=sale.created_by.get_username(),
+            status=sale.status,
+            items=[{
+                "product_name": item.product_name,
+                "factory_name": item.factory_name,
+                "quantity": item.quantity,
+                "pieces_per_unit": item.pieces_per_unit,
+                "unit_rate": item.unit_price,
+                "line_total": item.line_total,
+            } for item in sale.items.all()],
+            total=sale.total,
+            amount_paid=sale.amount_paid,
+            outstanding=sale.outstanding,
+            total_balance=total_balance,
+            note=sale.note,
+            language=language,
+        )
+
+    @staticmethod
+    def render_purchase(purchase: Purchase, language: str = "en") -> bytes:
+        purchase = Purchase.objects.select_related("store", "supplier", "created_by").prefetch_related("items", "ledger_entries").get(pk=purchase.pk)
+        total_balance = TransactionReceiptService._balance_after(purchase, -purchase.outstanding)
+        return TransactionReceiptService._render(
+            kind="purchase",
+            store=purchase.store,
+            number=TransactionReceiptService.purchase_number(purchase),
+            counterparty_name=purchase.supplier.name,
+            counterparty_phone=purchase.supplier.phone,
+            created_at=str(purchase.purchase_date),
+            cashier=purchase.created_by.get_username(),
+            status=purchase.status,
+            items=[{
+                "product_name": item.product_name,
+                "factory_name": item.factory_name,
+                "quantity": item.quantity,
+                "pieces_per_unit": item.pieces_per_unit,
+                "unit_rate": item.unit_cost,
+                "line_total": item.line_total,
+            } for item in purchase.items.all()],
+            total=purchase.total,
+            amount_paid=purchase.amount_paid,
+            outstanding=purchase.outstanding,
+            total_balance=total_balance,
+            reference=purchase.reference,
+            note=purchase.note,
+            language=language,
+        )
 
 
 class PaymentService:
@@ -551,7 +914,9 @@ class PurchaseService:
             raise ValidationError({"items": "At least one product is required."})
         supplier = Party.objects.select_for_update().filter(store=store, is_active=True, id=supplier_id).first()
         if not supplier:
-            raise ValidationError({"supplier_id": "Supplier was not found in this store."})
+            raise ValidationError({"supplier_id": "Factory was not found in this store."})
+        if supplier.party_type != Party.PartyType.FACTORY:
+            raise ValidationError({"supplier_id": "Choose a factory as the purchase supplier."})
 
         prepared_items = []
         seen_products = set()
@@ -561,9 +926,13 @@ class PurchaseService:
             if product_id in seen_products:
                 raise ValidationError({"items": "A product may only appear once in a purchase."})
             seen_products.add(product_id)
-            product = Product.objects.filter(store=store, is_active=True, id=product_id).first()
+            product = Product.objects.select_related("factory").filter(store=store, is_active=True, id=product_id).first()
             if not product:
                 raise ValidationError({"items": f"Product {product_id} was not found."})
+            if product.factory_id != supplier.id:
+                raise ValidationError(
+                    {"items": f"{product.name} belongs to {product.factory.name}, not {supplier.name}."}
+                )
             item_quantity = quantity(item.get("quantity", 0))
             unit_cost = money(item.get("unit_cost", product.purchase_price))
             if item_quantity <= 0:
@@ -598,7 +967,7 @@ class PurchaseService:
                 purchase=purchase,
                 product=product,
                 product_name=product.name,
-                sku=product.sku,
+                factory_name=product.factory.name,
                 quantity=item_quantity,
                 pieces_per_unit=pieces_per_unit,
                 unit_cost=unit_cost,
@@ -707,6 +1076,10 @@ class ReportService:
             transaction_count=Count("id"),
         )
         credit_generated = sales.filter(outstanding__gt=0).aggregate(value=Coalesce(Sum("outstanding"), ZERO))["value"]
+        profit_totals = SaleItem.objects.filter(sale__in=sales).aggregate(
+            cost=Coalesce(Sum("line_cost"), ZERO),
+            gross_profit=Coalesce(Sum("gross_profit"), ZERO),
+        )
         later_collected = later_payments.aggregate(value=Coalesce(Sum("amount"), ZERO))["value"]
         purchase_totals = purchases.aggregate(
             total=Coalesce(Sum("total"), ZERO),
@@ -724,13 +1097,18 @@ class ReportService:
         payables = Party.objects.filter(store=store, is_active=True, current_balance__lt=0).aggregate(value=Coalesce(Sum("current_balance"), ZERO))["value"]
         low_stock = list(
             Product.objects.filter(store=store, is_active=True, inventory__quantity__lte=F("minimum_stock_threshold"))
-            .values("id", "name", "sku", quantity=F("inventory__quantity"))
-            .order_by("name")
+            .values("id", "name", factory_name=F("factory__name"), quantity=F("inventory__quantity"))
+            .order_by("factory__name", "name")
         )
         products_sold = list(
             SaleItem.objects.filter(sale__in=sales)
-            .values("product_id", "product_name", "sku")
-            .annotate(quantity=Sum("quantity"), amount=Sum("line_total"))
+            .values("product_id", "product_name", "factory_name")
+            .annotate(
+                quantity=Sum("quantity"),
+                amount=Sum("line_total"),
+                cost=Sum("line_cost"),
+                gross_profit=Sum("gross_profit"),
+            )
             .order_by("-quantity")
         )
         sold_product_ids = {item["product_id"] for item in products_sold}
@@ -738,19 +1116,21 @@ class ReportService:
             {
                 "product_id": item["id"],
                 "product_name": item["name"],
-                "sku": item["sku"],
+                "factory_name": item["factory__name"],
                 "quantity": Decimal("0.000"),
                 "amount": ZERO,
+                "cost": ZERO,
+                "gross_profit": ZERO,
             }
             for item in Product.objects.filter(store=store, is_active=True)
             .exclude(id__in=sold_product_ids)
-            .values("id", "name", "sku")
+            .values("id", "name", "factory__name")
         ]
         lowest_selling_products = sorted([*zero_sale_products, *products_sold], key=lambda item: (item["quantity"], item["product_name"]))
         total_products_sold = sum((item["quantity"] for item in products_sold), Decimal("0.000"))
         stock_received_products = list(
             movements.filter(movement_type=StockMovement.MovementType.RECEIVED, quantity_delta__gt=0)
-            .values("product_id", "product__name", "product__sku")
+            .values("product_id", "product__name", "product__factory__name")
             .annotate(quantity=Sum("quantity_delta"))
             .order_by("-quantity")
         )
@@ -784,7 +1164,7 @@ class ReportService:
         lowest_day = min(daily_rows, key=lambda row: row["total"], default=None)
 
         low_stock_event_map = {}
-        for movement in movements.select_related("product").order_by("created_at", "id"):
+        for movement in movements.select_related("product", "product__factory").order_by("created_at", "id"):
             previous_balance = movement.balance_after - movement.quantity_delta
             reached_threshold = (
                 movement.balance_after <= movement.product.minimum_stock_threshold
@@ -800,7 +1180,7 @@ class ReportService:
                 {
                     "product_id": movement.product_id,
                     "name": movement.product.name,
-                    "sku": movement.product.sku,
+                    "factory_name": movement.product.factory.name,
                     "occurrences": 0,
                     "latest_quantity": str(movement.balance_after),
                 },
@@ -810,13 +1190,13 @@ class ReportService:
         low_stock_reached = sorted(low_stock_event_map.values(), key=lambda item: (-item["occurrences"], item["name"]))
 
         current_inventory = []
-        for product in Product.objects.select_related("inventory").filter(store=store, is_active=True).order_by("name"):
+        for product in Product.objects.select_related("inventory", "factory").filter(store=store, is_active=True).order_by("factory__name", "name"):
             current_quantity = getattr(getattr(product, "inventory", None), "quantity", Decimal("0.000"))
             current_inventory.append(
                 {
                     "product_id": product.id,
                     "name": product.name,
-                    "sku": product.sku,
+                    "factory_name": product.factory.name,
                     "unit": product.unit,
                     "quantity": str(current_quantity),
                     "purchase_price": str(money(product.purchase_price)),
@@ -903,6 +1283,8 @@ class ReportService:
                 "total_collected": str(money(sale_totals["collected_at_sale"] + later_collected)),
                 "credit_generated": str(money(credit_generated)),
                 "outstanding_generated": str(money(credit_generated)),
+                "cost_of_goods_sold": str(money(profit_totals["cost"])),
+                "gross_profit": str(money(profit_totals["gross_profit"])),
                 "average_daily_sales": str(money(sale_totals["total_sales"] / days_in_period)),
                 "best_sales_day": (
                     {"date": str(best_day["day"]), "amount": str(money(best_day["total"]))} if best_day else None
@@ -953,7 +1335,7 @@ class ReportService:
                     {
                         "product_id": item["product_id"],
                         "name": item["product__name"],
-                        "sku": item["product__sku"],
+                        "factory_name": item["product__factory__name"],
                         "quantity": str(item["quantity"]),
                     }
                     for item in stock_received_products
@@ -964,15 +1346,33 @@ class ReportService:
                 "low_stock_count": len(low_stock),
                 "low_stock": [{**item, "quantity": str(item["quantity"])} for item in low_stock],
                 "products_sold": [
-                    {**item, "quantity": str(item["quantity"]), "amount": str(money(item["amount"]))}
+                    {
+                        **item,
+                        "quantity": str(item["quantity"]),
+                        "amount": str(money(item["amount"])),
+                        "cost": str(money(item["cost"])),
+                        "gross_profit": str(money(item["gross_profit"])),
+                    }
                     for item in products_sold
                 ],
                 "best_selling_products": [
-                    {**item, "quantity": str(item["quantity"]), "amount": str(money(item["amount"]))}
+                    {
+                        **item,
+                        "quantity": str(item["quantity"]),
+                        "amount": str(money(item["amount"])),
+                        "cost": str(money(item["cost"])),
+                        "gross_profit": str(money(item["gross_profit"])),
+                    }
                     for item in products_sold[:10]
                 ],
                 "lowest_selling_products": [
-                    {**item, "quantity": str(item["quantity"]), "amount": str(money(item["amount"]))}
+                    {
+                        **item,
+                        "quantity": str(item["quantity"]),
+                        "amount": str(money(item["amount"])),
+                        "cost": str(money(item["cost"])),
+                        "gross_profit": str(money(item["gross_profit"])),
+                    }
                     for item in lowest_selling_products[:10]
                 ],
                 "current_inventory": current_inventory,
@@ -1090,9 +1490,10 @@ class ReportService:
                 return
             for item in rows:
                 name = item.get("product_name") or item.get("name") or "Product"
-                sku = item.get("sku", "")
+                factory = item.get("factory_name", "")
                 amount = f" | {item['amount']} {store.currency}" if "amount" in item else ""
-                line(f"{name} ({sku}) | {item.get(quantity_key, '')}{amount}")
+                profit = f" | profit {item['gross_profit']} {store.currency}" if "gross_profit" in item else ""
+                line(f"{name} (Factory: {factory}) | {item.get(quantity_key, '')}{amount}{profit}")
 
         inventory = summary["inventory"]
         product_table("Products Sold", inventory["products_sold"])
@@ -1143,15 +1544,17 @@ class ReportService:
 
         def product_sheet(title, rows):
             target = workbook.create_sheet(title)
-            target.append(["Product", "SKU", "Unit", "Quantity", "Amount", "Purchase Price", "Selling Price", "Low Stock"])
+            target.append(["Product", "Factory", "Unit", "Quantity", "Amount", "Cost", "Gross Profit", "Purchase Price", "Selling Price", "Low Stock"])
             for item in rows:
                 target.append(
                     [
                         item.get("product_name") or item.get("name"),
-                        item.get("sku", ""),
+                        item.get("factory_name", ""),
                         item.get("unit", ""),
                         item.get("quantity", ""),
                         item.get("amount", ""),
+                        item.get("cost", ""),
+                        item.get("gross_profit", ""),
                         item.get("purchase_price", ""),
                         item.get("selling_price", ""),
                         item.get("is_low_stock", ""),
@@ -1163,9 +1566,9 @@ class ReportService:
         product_sheet("Low Stock", inventory["low_stock"])
         product_sheet("Current Inventory", inventory["current_inventory"])
         reached = workbook.create_sheet("Low Stock Events")
-        reached.append(["Product", "SKU", "Occurrences", "Latest Quantity"])
+        reached.append(["Product", "Factory", "Occurrences", "Latest Quantity"])
         for item in inventory["products_reached_low_stock"]:
-            reached.append([item["name"], item["sku"], item["occurrences"], item["latest_quantity"]])
+            reached.append([item["name"], item["factory_name"], item["occurrences"], item["latest_quantity"]])
         daily = workbook.create_sheet("Daily Sales")
         daily.append(["Date", "Sales", "Collected", "Transactions"])
         for item in summary["sales"]["daily_breakdown"]:
@@ -1225,7 +1628,11 @@ class SMSService:
         if not store_settings.sms_enabled:
             return {"sent": 0, "failed": 0, "disabled": True}
         result = {"sent": 0, "failed": 0, "disabled": False}
-        parties = Party.objects.filter(store=store, is_active=True, sms_enabled=True, current_balance__gt=0).exclude(phone="")
+        parties = (
+            Party.objects.filter(store=store, is_active=True, sms_enabled=True, current_balance__gt=0)
+            .exclude(party_type=Party.PartyType.FACTORY)
+            .exclude(phone="")
+        )
         account_number = store_settings.sms_account_number or store.account_number
         for party in parties:
             message = (

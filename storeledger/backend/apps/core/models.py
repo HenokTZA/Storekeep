@@ -76,24 +76,10 @@ class StoreSettings(TimeStampedModel):
         return f"Settings: {self.store}"
 
 
-class Category(TimeStampedModel):
-    store = models.ForeignKey(Store, on_delete=models.CASCADE, related_name="categories")
-    name = models.CharField(max_length=120)
-    is_active = models.BooleanField(default=True)
-
-    class Meta:
-        ordering = ["name"]
-        constraints = [models.UniqueConstraint(fields=["store", "name"], name="unique_category_name_per_store")]
-
-    def __str__(self):
-        return self.name
-
-
 class Product(TimeStampedModel):
     store = models.ForeignKey(Store, on_delete=models.CASCADE, related_name="products")
-    category = models.ForeignKey(Category, on_delete=models.SET_NULL, null=True, blank=True, related_name="products")
+    factory = models.ForeignKey("Party", on_delete=models.PROTECT, related_name="products")
     name = models.CharField(max_length=180)
-    sku = models.CharField(max_length=80)
     unit = models.CharField(max_length=40, default="unit")
     pieces_per_unit = models.PositiveIntegerField(
         default=1,
@@ -107,20 +93,25 @@ class Product(TimeStampedModel):
         decimal_places=QUANTITY_DECIMAL_PLACES,
         default=Decimal("5"),
     )
-    supplier = models.CharField(max_length=180, blank=True)
     notes = models.TextField(blank=True)
     is_active = models.BooleanField(default=True)
 
     class Meta:
-        ordering = ["name"]
-        constraints = [models.UniqueConstraint(fields=["store", "sku"], name="unique_product_sku_per_store")]
+        ordering = ["factory__name", "name"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["store", "factory", "name"],
+                condition=models.Q(is_active=True),
+                name="unique_product_name_per_factory",
+            )
+        ]
         indexes = [
             models.Index(fields=["store", "name"]),
-            models.Index(fields=["store", "sku"]),
+            models.Index(fields=["store", "factory", "name"], name="core_product_factory_name_idx"),
         ]
 
     def __str__(self):
-        return f"{self.name} ({self.sku})"
+        return f"{self.name} ({self.factory.name})"
 
 
 class InventoryBalance(TimeStampedModel):
@@ -143,6 +134,7 @@ class StockMovement(models.Model):
 
     store = models.ForeignKey(Store, on_delete=models.CASCADE, related_name="stock_movements")
     product = models.ForeignKey(Product, on_delete=models.PROTECT, related_name="stock_movements")
+    factory_name = models.CharField(max_length=180)
     movement_type = models.CharField(max_length=20, choices=MovementType.choices)
     quantity_delta = models.DecimalField(max_digits=QUANTITY_MAX_DIGITS, decimal_places=QUANTITY_DECIMAL_PLACES)
     balance_after = models.DecimalField(max_digits=QUANTITY_MAX_DIGITS, decimal_places=QUANTITY_DECIMAL_PLACES)
@@ -161,13 +153,13 @@ class Party(TimeStampedModel):
     class PartyType(models.TextChoices):
         TRADER = "trader", "Trader"
         AGENT = "agent", "Agent"
+        FACTORY = "factory", "Factory"
 
     store = models.ForeignKey(Store, on_delete=models.CASCADE, related_name="parties")
     party_type = models.CharField(max_length=20, choices=PartyType.choices)
     name = models.CharField(max_length=180)
     company = models.CharField(max_length=180, blank=True)
-    phone = models.CharField(max_length=40)
-    account_number = models.CharField(max_length=100, blank=True)
+    phone = models.CharField(max_length=40, blank=True)
     address = models.TextField(blank=True)
     notes = models.TextField(blank=True)
     current_balance = models.DecimalField(max_digits=MONEY_MAX_DIGITS, decimal_places=MONEY_DECIMAL_PLACES, default=0)
@@ -177,12 +169,20 @@ class Party(TimeStampedModel):
     class Meta:
         ordering = ["name"]
         constraints = [
-            models.UniqueConstraint(fields=["store", "party_type", "phone"], name="unique_party_phone_per_type_store")
+            models.UniqueConstraint(
+                fields=["store", "party_type", "phone"],
+                condition=~models.Q(phone=""),
+                name="unique_party_phone_per_type_store",
+            ),
+            models.UniqueConstraint(
+                fields=["store", "name"],
+                condition=models.Q(party_type="factory", is_active=True),
+                name="unique_factory_name_per_store",
+            ),
         ]
         indexes = [
             models.Index(fields=["store", "party_type", "name"]),
             models.Index(fields=["store", "phone"]),
-            models.Index(fields=["store", "account_number"]),
             models.Index(fields=["store", "current_balance"]),
         ]
 
@@ -228,11 +228,14 @@ class SaleItem(models.Model):
     sale = models.ForeignKey(Sale, on_delete=models.CASCADE, related_name="items")
     product = models.ForeignKey(Product, on_delete=models.PROTECT, related_name="sale_items")
     product_name = models.CharField(max_length=180)
-    sku = models.CharField(max_length=80)
+    factory_name = models.CharField(max_length=180)
     quantity = models.DecimalField(max_digits=QUANTITY_MAX_DIGITS, decimal_places=QUANTITY_DECIMAL_PLACES, validators=[MinValueValidator(Decimal("0.001"))])
     pieces_per_unit = models.PositiveIntegerField(default=1, validators=[MinValueValidator(1)])
     unit_price = models.DecimalField(max_digits=MONEY_MAX_DIGITS, decimal_places=MONEY_DECIMAL_PLACES, validators=[MinValueValidator(0)])
     line_total = models.DecimalField(max_digits=MONEY_MAX_DIGITS, decimal_places=MONEY_DECIMAL_PLACES)
+    unit_cost = models.DecimalField(max_digits=MONEY_MAX_DIGITS, decimal_places=MONEY_DECIMAL_PLACES, default=0)
+    line_cost = models.DecimalField(max_digits=MONEY_MAX_DIGITS, decimal_places=MONEY_DECIMAL_PLACES, default=0)
+    gross_profit = models.DecimalField(max_digits=MONEY_MAX_DIGITS, decimal_places=MONEY_DECIMAL_PLACES, default=0)
 
 
 class Payment(TimeStampedModel):
@@ -394,7 +397,7 @@ class PurchaseItem(models.Model):
     purchase = models.ForeignKey(Purchase, on_delete=models.CASCADE, related_name="items")
     product = models.ForeignKey(Product, on_delete=models.PROTECT, related_name="purchase_items")
     product_name = models.CharField(max_length=180)
-    sku = models.CharField(max_length=80)
+    factory_name = models.CharField(max_length=180)
     quantity = models.DecimalField(
         max_digits=QUANTITY_MAX_DIGITS,
         decimal_places=QUANTITY_DECIMAL_PLACES,

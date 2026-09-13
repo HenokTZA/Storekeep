@@ -109,6 +109,38 @@ const dashboardSource = fs.readFileSync(path.join(mobileRoot, 'app', '(tabs)', '
 const summaryHeight = dashboardSource.match(/summaryCard:\s*\{[^}]*minHeight:\s*(\d+)/s);
 if (!summaryHeight || Number(summaryHeight[1]) > 120) errors.push('app/(tabs)/index.tsx: dashboard summary cards must remain compact enough to show the first six together');
 
+const stockSource = fs.readFileSync(path.join(mobileRoot, 'app', '(tabs)', 'stock.tsx'), 'utf8');
+if (!stockSource.includes("pathname: '/purchase-new'") || !stockSource.includes('productId: String(product.id)')) {
+  errors.push('app/(tabs)/stock.tsx: Receive must open the full preselected purchase workflow');
+}
+
+const saleSource = fs.readFileSync(path.join(mobileRoot, 'app', '(tabs)', 'sale.tsx'), 'utf8');
+if (!saleSource.includes('ENTER UNITS / BAGS') || !saleSource.includes('Set Units')) {
+  errors.push('app/(tabs)/sale.tsx: sale quantity must support direct typed unit entry');
+}
+if (!saleSource.includes('quantityError') || !saleSource.includes('Enter') || !saleSource.includes('or less')) {
+  errors.push('app/(tabs)/sale.tsx: direct quantity entry must explain an over-stock value inside the modal');
+}
+if (!saleSource.includes('unit_price: piecePrice(product).toFixed(2)') || !saleSource.includes('{selected ? (')) {
+  errors.push('app/(tabs)/sale.tsx: walk-in sales must expose and submit one-transaction price overrides');
+}
+if (!saleSource.includes('Total outstanding')) {
+  errors.push('app/(tabs)/sale.tsx: invoice preview must show the total account outstanding');
+}
+
+const transactionsSource = fs.readFileSync(path.join(mobileRoot, 'app', 'transactions.tsx'), 'utf8');
+for (const required of ['SALE RECEIPT', 'PURCHASE RECEIPT', 'eye-outline', 'download-outline', 'share-social-outline']) {
+  if (!transactionsSource.includes(required)) errors.push(`app/transactions.tsx: missing receipt behavior ${required}`);
+}
+if (!transactionsSource.includes("party_type === 'walk_in'") || !transactionsSource.includes('PAID · WALK-IN')) {
+  errors.push('app/transactions.tsx: walk-in sales must render as paid sale transactions with receipt actions');
+}
+
+const receiptViewSource = fs.readFileSync(path.join(mobileRoot, 'app', 'receipt-view.tsx'), 'utf8');
+if (!receiptViewSource.includes('image/png') && !receiptViewSource.includes('PNG image')) {
+  errors.push('app/receipt-view.tsx: transaction receipt must be presented as an image');
+}
+
 const appConfig = JSON.parse(fs.readFileSync(path.join(mobileRoot, 'app.json'), 'utf8'));
 if (appConfig.expo.userInterfaceStyle !== 'light') errors.push('app.json: corrected build must use deterministic light appearance');
 

@@ -1,5 +1,6 @@
 import React from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, View } from 'react-native';
+import { Text } from '@/i18n';
 import { router } from 'expo-router';
 import { useAuth } from '@/auth/AuthContext';
 import { Button, Card, Icon, IconName, Screen, SectionHeader, Title } from '@/components/ui';
@@ -13,7 +14,7 @@ const groups: { title: string; links: LinkItem[] }[] = [
     links: [
       { label: 'Transactions', href: '/transactions', icon: 'swap-horizontal-outline', subtitle: 'Complete financial ledger' },
       { label: 'Expenses & Budget', href: '/expenses', icon: 'receipt-outline', subtitle: 'Costs, categories and budget' },
-      { label: 'Purchases', href: '/purchases', icon: 'bag-handle-outline', subtitle: 'Supplier purchases and payables' },
+      { label: 'Purchases', href: '/purchases', icon: 'bag-handle-outline', subtitle: 'Factory purchases and payables' },
       { label: 'Payment Sent', href: '/outgoing-payment', icon: 'paper-plane-outline', subtitle: 'Settle an I Owe balance' },
       { label: 'Overdue Receivables', href: '/overdue', icon: 'time-outline', subtitle: 'Balances that need attention' },
       { label: 'Reports', href: '/reports', icon: 'bar-chart-outline', subtitle: 'Generate and download reports' },
@@ -71,7 +72,7 @@ export default function MoreScreen() {
       ))}
 
       <Button title="Sign Out" icon="log-out-outline" variant="danger" onPress={async () => { await logout(); router.replace('/login'); }} />
-      <Text style={styles.version}>StoreLedger Mobile · Version 1.4.0</Text>
+      <Text style={styles.version}>StoreLedger Mobile · Version 2.0.0</Text>
     </Screen>
   );
 }

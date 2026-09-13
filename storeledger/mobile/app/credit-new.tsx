@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { Alert, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, View } from 'react-native';
+import { localizedAlert, Text } from '@/i18n';
 import { router, useLocalSearchParams } from 'expo-router';
 import { Button, Card, Icon, Input, Message, Screen, SectionHeader, Title } from '@/components/ui';
 import { apiFetch, errorMessage } from '@/lib/api';
@@ -17,7 +18,7 @@ export default function CreditScreen() {
     setError('');
     try {
       await apiFetch(`/parties/${partyId}/credit/`, { method: 'POST', body: JSON.stringify({ direction, amount, note }) });
-      Alert.alert('Balance updated', 'A permanent ledger entry was added.');
+      localizedAlert('Balance updated', 'A permanent ledger entry was added.');
       router.back();
     } catch (nextError) {
       setError(errorMessage(nextError));

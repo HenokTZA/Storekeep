@@ -1,6 +1,6 @@
 {
   "name": "storeledger-mobile",
-  "version": "1.6.0",
+  "version": "2.0.0",
   "private": true,
   "main": "expo-router/entry",
   "scripts": {
@@ -8,16 +8,17 @@
     "android": "expo start --android",
     "typecheck": "tsc --noEmit",
     "doctor": "expo-doctor",
-    "ui-check": "node scripts/check-ui.mjs"
+    "ui-check": "node scripts/check-ui.mjs",
+    "localization-check": "node scripts/check-localization.mjs"
   },
   "dependencies": {
     "@expo/vector-icons": "^15.0.3",
-    "expo": "~57.0.19",
+    "expo": "~57.0.21",
     "expo-constants": "~57.0.17",
     "expo-file-system": "~57.0.6",
     "expo-font": "~57.0.3",
     "expo-linking": "~57.0.9",
-    "expo-router": "~57.0.18",
+    "expo-router": "~57.0.20",
     "expo-secure-store": "~57.0.3",
     "expo-sharing": "~57.0.17",
     "expo-sqlite": "~57.0.2",

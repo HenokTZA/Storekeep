@@ -23,9 +23,8 @@ export type Me = {
 export type Product = {
   id: number;
   name: string;
-  sku: string;
-  category: number | null;
-  category_name: string | null;
+  factory: number;
+  factory_name: string;
   unit: string;
   pieces_per_unit: number;
   purchase_price: string;
@@ -36,19 +35,15 @@ export type Product = {
   minimum_stock_threshold: string;
   current_quantity: string;
   is_low_stock: boolean;
-  supplier: string;
   notes: string;
 };
 
-export type Category = { id: number; name: string; is_active: boolean };
-
 export type Party = {
   id: number;
-  party_type: 'trader' | 'agent';
+  party_type: 'trader' | 'agent' | 'factory';
   name: string;
   company: string;
   phone: string;
-  account_number: string;
   address: string;
   notes: string;
   current_balance: string;
@@ -62,13 +57,16 @@ export type SaleItem = {
   id: number;
   product: number;
   product_name: string;
-  sku: string;
+  factory_name: string;
   quantity: string;
   pieces_per_unit: number;
   total_pieces: string;
   unit_price: string;
   pack_price: string;
   line_total: string;
+  unit_cost: string;
+  line_cost: string;
+  gross_profit: string;
 };
 
 export type Sale = {
@@ -104,9 +102,9 @@ export type Payment = {
 };
 
 export type Transaction = {
-  id: number;
+  id: number | string;
   created_at: string;
-  party: number;
+  party: number | null;
   party_name: string;
   party_type: string;
   transaction_type: string;
@@ -193,7 +191,7 @@ export type PurchaseItem = {
   id: number;
   product: number;
   product_name: string;
-  sku: string;
+  factory_name: string;
   quantity: string;
   pieces_per_unit: number;
   total_pieces: string;
@@ -204,6 +202,7 @@ export type PurchaseItem = {
 
 export type Purchase = {
   id: string;
+  supplier_record_id: number;
   supplier_name: string;
   idempotency_key: string;
   status: string;

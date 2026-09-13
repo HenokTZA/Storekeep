@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, View } from 'react-native';
+import { Text } from '@/i18n';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useAuth } from '@/auth/AuthContext';
 import { Badge, Button, Card, Icon, Message, Money, Screen, SearchField, SectionHeader, Title } from '@/components/ui';
@@ -35,10 +36,10 @@ export default function GlobalSearchScreen() {
     <Screen>
       <Title eyebrow="Global search" subtitle="Products, people, sales, purchases, expenses and references">Search Everything</Title>
       {error ? <Message text={error} tone="error" /> : null}
-      <View style={styles.searchRow}><View style={styles.flex}><SearchField value={query} onChangeText={setQuery} placeholder="Name, phone, SKU, reference or note" onSubmitEditing={() => { void search(); }} /></View><View style={styles.searchButton}><Button title={busy ? '…' : 'Search'} icon="search-outline" compact onPress={() => { void search(); }} disabled={busy || query.trim().length < 2} /></View></View>
+      <View style={styles.searchRow}><View style={styles.flex}><SearchField value={query} onChangeText={setQuery} placeholder="Name, factory, phone, reference or note" onSubmitEditing={() => { void search(); }} /></View><View style={styles.searchButton}><Button title={busy ? '…' : 'Search'} icon="search-outline" compact onPress={() => { void search(); }} disabled={busy || query.trim().length < 2} /></View></View>
       {data ? <View style={styles.resultSummary}><Icon name="search-outline" size={18} color={colors.primary} /><Text style={styles.count}>{resultCount} results for “{data.query}”</Text></View> : null}
 
-      {data?.products.length ? <Section title="Products" icon="cube-outline" count={data.products.length}>{data.products.map(item => <ResultRow key={item.id} icon="cube-outline" title={item.name} subtitle={`${item.sku} · stock ${item.current_quantity}`} value={<Money value={item.selling_price} currency={store?.currency} size="small" />} onPress={() => router.push({ pathname: '/product-edit', params: { productId: String(item.id) } })} />)}</Section> : null}
+      {data?.products.length ? <Section title="Products" icon="cube-outline" count={data.products.length}>{data.products.map(item => <ResultRow key={item.id} icon="cube-outline" title={item.name} subtitle={`Factory ${item.factory_name} · stock ${item.current_quantity}`} value={<Money value={item.selling_price} currency={store?.currency} size="small" />} onPress={() => router.push({ pathname: '/product-edit', params: { productId: String(item.id) } })} />)}</Section> : null}
       {data?.parties.length ? <Section title="People & Companies" icon="people-outline" count={data.parties.length}>{data.parties.map(item => <ResultRow key={item.id} icon="person-outline" title={item.name} subtitle={`${item.company || item.phone} · ${item.balance_label}`} value={<Money value={item.balance_amount} currency={store?.currency} color={item.balance_color === 'red' ? colors.danger : item.balance_color === 'green' ? colors.success : colors.neutral} size="small" />} onPress={() => router.push({ pathname: '/customer-detail', params: { partyId: String(item.id) } })} />)}</Section> : null}
       {data?.sales.length ? <Section title="Sales" icon="cart-outline" count={data.sales.length}>{data.sales.map(item => <ResultRow key={item.id} icon="cart-outline" title={item.customer_name || 'Walk-in'} subtitle={`${new Date(item.created_at).toLocaleString()} · ${item.id.slice(0, 8)}`} value={<Money value={item.total} currency={store?.currency} size="small" />} />)}</Section> : null}
       {data?.purchases.length ? <Section title="Purchases" icon="bag-handle-outline" count={data.purchases.length}>{data.purchases.map(item => <ResultRow key={item.id} icon="business-outline" title={item.supplier_name} subtitle={`${item.purchase_date} · ${item.reference || item.id.slice(0, 8)}`} value={<Money value={item.total} currency={store?.currency} size="small" />} />)}</Section> : null}

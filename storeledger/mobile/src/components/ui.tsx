@@ -8,7 +8,6 @@ import {
   ScrollView,
   StyleProp,
   StyleSheet,
-  Text,
   TextInput,
   TextInputProps,
   View,
@@ -17,6 +16,7 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { colors, radius, shadow, spacing } from '@/theme';
+import { localizeText, Text, useI18n } from '@/i18n';
 
 export type IconName = React.ComponentProps<typeof Ionicons>['name'];
 
@@ -102,21 +102,24 @@ export function Button({ title, onPress, disabled, variant = 'primary', icon, co
 }
 
 export function IconButton({ icon, onPress, label, variant = 'soft' }: { icon: IconName; onPress: () => void; label: string; variant?: 'soft' | 'plain' | 'danger' }) {
+  const { language } = useI18n();
   const iconColor = variant === 'danger' ? colors.danger : colors.primary;
   return (
-    <Pressable accessibilityRole="button" accessibilityLabel={label} onPress={onPress} style={({ pressed }) => [styles.iconButton, variant === 'plain' && styles.iconButtonPlain, variant === 'danger' && styles.iconButtonDanger, pressed && styles.dimmed]}>
+    <Pressable accessibilityRole="button" accessibilityLabel={localizeText(label, language)} onPress={onPress} style={({ pressed }) => [styles.iconButton, variant === 'plain' && styles.iconButtonPlain, variant === 'danger' && styles.iconButtonDanger, pressed && styles.dimmed]}>
       <Icon name={icon} size={22} color={iconColor} />
     </Pressable>
   );
 }
 
 export function Input({ label, icon, hint, ...props }: TextInputProps & { label: string; icon?: IconName; hint?: string }) {
+  const { language } = useI18n();
+  const placeholder = typeof props.placeholder === 'string' ? localizeText(props.placeholder, language) : props.placeholder;
   return (
     <View style={styles.field}>
       <Text style={styles.label}>{label}</Text>
       <View style={[styles.inputShell, props.multiline && styles.inputShellMultiline]}>
         {icon ? <Icon name={icon} size={19} color={colors.muted} /> : null}
-        <TextInput placeholderTextColor={colors.muted} style={[styles.input, props.multiline && styles.inputMultiline]} {...props} />
+        <TextInput {...props} placeholder={placeholder} placeholderTextColor={colors.muted} style={[styles.input, props.multiline && styles.inputMultiline, props.style]} />
       </View>
       {hint ? <Text style={styles.hint}>{hint}</Text> : null}
     </View>
@@ -124,17 +127,19 @@ export function Input({ label, icon, hint, ...props }: TextInputProps & { label:
 }
 
 export function SearchField({ value, onChangeText, placeholder, onSubmitEditing }: { value: string; onChangeText: (value: string) => void; placeholder: string; onSubmitEditing?: () => void }) {
+  const { language } = useI18n();
+  const localizedPlaceholder = localizeText(placeholder, language);
   return (
     <View style={styles.searchShell}>
       <Icon name="search-outline" size={21} color={colors.muted} />
       <TextInput
-        accessibilityLabel={placeholder}
+        accessibilityLabel={localizedPlaceholder}
         autoCapitalize="none"
         autoCorrect={false}
         clearButtonMode="while-editing"
         onChangeText={onChangeText}
         onSubmitEditing={onSubmitEditing}
-        placeholder={placeholder}
+        placeholder={localizedPlaceholder}
         placeholderTextColor={colors.muted}
         returnKeyType="search"
         style={styles.searchInput}
@@ -176,7 +181,8 @@ export function Message({ text, tone = 'neutral' }: { text: string; tone?: 'neut
 }
 
 export function Money({ value, currency = 'ETB', color, size = 'medium' }: { value: string | number; currency?: string; color?: ColorValue; size?: 'small' | 'medium' | 'large' }) {
-  return <Text style={[styles.money, size === 'small' && styles.moneySmall, size === 'large' && styles.moneyLarge, color ? { color } : null]}>{Number(value).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} <Text style={styles.currency}>{currency}</Text></Text>;
+  const { locale } = useI18n();
+  return <Text style={[styles.money, size === 'small' && styles.moneySmall, size === 'large' && styles.moneyLarge, color ? { color } : null]}>{Number(value).toLocaleString(locale, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} <Text style={styles.currency}>{currency}</Text></Text>;
 }
 
 export function EmptyState({ icon = 'file-tray-outline', title, message }: { icon?: IconName; title: string; message?: string }) {

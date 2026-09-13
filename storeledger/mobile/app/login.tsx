@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, View } from 'react-native';
+import { LanguageSwitch, Text } from '@/i18n';
 import { router } from 'expo-router';
 import { useAuth } from '@/auth/AuthContext';
 import { Button, Card, Icon, Input, Message, Screen } from '@/components/ui';
@@ -28,6 +29,7 @@ export default function LoginScreen() {
 
   return (
     <Screen style={styles.container}>
+      <View style={styles.languageRow}><LanguageSwitch /></View>
       <View style={styles.brand}>
         <View style={styles.logo}>
           <Icon name="receipt-outline" color={colors.onPrimary} size={34} />
@@ -59,6 +61,7 @@ export default function LoginScreen() {
 
 const styles = StyleSheet.create({
   container: { justifyContent: 'center', flexGrow: 1, paddingHorizontal: spacing.mdLg, paddingVertical: spacing.xl },
+  languageRow: { alignItems: 'flex-end', marginBottom: spacing.sm },
   brand: { alignItems: 'center', marginBottom: spacing.md, gap: spacing.xs },
   logo: { width: 72, height: 72, borderRadius: radius.xl, backgroundColor: colors.primaryButton, alignItems: 'center', justifyContent: 'center', marginBottom: spacing.sm, ...shadow.floating },
   logoCheck: { position: 'absolute', right: -3, bottom: -3, width: 26, height: 26, borderRadius: 13, backgroundColor: colors.surface, borderWidth: 2, borderColor: colors.primaryButton, alignItems: 'center', justifyContent: 'center' },

@@ -1,13 +1,16 @@
 import React, { useCallback, useState } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, View } from 'react-native';
+import { Text } from '@/i18n';
 import { router, useFocusEffect } from 'expo-router';
 import { Badge, Button, Card, Icon, Loading, Message, Money, Screen, SearchField, Title } from '@/components/ui';
 import { cachedGet, errorMessage } from '@/lib/api';
 import { colors, radius, spacing } from '@/theme';
 import type { Paginated, Party } from '@/types';
 
+type PartyType = Party['party_type'];
+
 export default function CustomersScreen() {
-  const [type, setType] = useState<'trader' | 'agent'>('trader');
+  const [type, setType] = useState<PartyType>('trader');
   const [parties, setParties] = useState<Party[]>([]);
   const [query, setQuery] = useState('');
   const [loading, setLoading] = useState(true);
@@ -30,20 +33,20 @@ export default function CustomersScreen() {
     <Screen safeTop>
       <Title
         eyebrow="People & balances"
-        subtitle="Balances are shown from your store's perspective"
-        action={<Button title={`Add ${type === 'trader' ? 'Trader' : 'Agent'}`} icon="person-add-outline" compact onPress={() => router.push({ pathname: '/customer-new', params: { type } })} />}
-      >Customers</Title>
+        subtitle={type === 'factory' ? 'Factories supply the products you distribute' : "Balances are shown from your store's perspective"}
+        action={<Button title={`Add ${typeLabel(type)}`} icon={type === 'factory' ? 'business-outline' : 'person-add-outline'} compact onPress={() => router.push({ pathname: '/customer-new', params: { type } })} />}
+      >People</Title>
       {error ? <Message text={error} tone="error" /> : null}
 
       <View style={styles.toggle}>
-        {(['trader', 'agent'] as const).map(value => (
+        {(['trader', 'agent', 'factory'] as const).map(value => (
           <Pressable key={value} onPress={() => { setLoading(true); setType(value); }} style={[styles.toggleButton, type === value && styles.toggleActive]}>
-            <Icon name={value === 'trader' ? 'person-outline' : 'people-outline'} size={18} color={type === value ? colors.onPrimary : colors.muted} />
-            <Text style={[styles.toggleText, type === value && styles.toggleTextActive]}>{value === 'trader' ? 'Traders' : 'Agents'}</Text>
+            <Icon name={partyIcon(value)} size={18} color={type === value ? colors.onPrimary : colors.muted} />
+            <Text style={[styles.toggleText, type === value && styles.toggleTextActive]}>{typePlural(value)}</Text>
           </Pressable>
         ))}
       </View>
-      <SearchField value={query} onChangeText={setQuery} placeholder="Search name, phone or account" onSubmitEditing={load} />
+      <SearchField value={query} onChangeText={setQuery} placeholder={`Search ${typeLabel(type).toLowerCase()} name or phone`} onSubmitEditing={load} />
 
       {loading ? <Loading /> : parties.length ? parties.map(party => {
         const tone = party.balance_color === 'red' ? 'danger' : party.balance_color === 'green' ? 'success' : 'neutral';
@@ -52,15 +55,15 @@ export default function CustomersScreen() {
         return (
           <Card key={party.id}>
             <Pressable onPress={() => router.push({ pathname: '/customer-detail', params: { partyId: String(party.id) } })} style={({ pressed }) => [styles.row, pressed && styles.pressed]}>
-              <View style={[styles.avatar, { backgroundColor: party.party_type === 'agent' ? colors.successSoft : colors.primarySoft }]}>
-                <Text style={[styles.avatarText, { color: party.party_type === 'agent' ? colors.success : colors.primary }]}>{initials(party.name)}</Text>
+              <View style={[styles.avatar, { backgroundColor: party.party_type === 'agent' ? colors.successSoft : colors.primarySoft }]}> 
+                {party.party_type === 'factory' ? <Icon name="business-outline" size={23} color={colors.primary} /> : <Text style={[styles.avatarText, { color: party.party_type === 'agent' ? colors.success : colors.primary }]}>{initials(party.name)}</Text>}
               </View>
               <View style={styles.customerCopy}>
                 <View style={styles.nameRow}>
                   <Text style={styles.name}>{party.name}</Text>
-                  <Badge label={party.party_type === 'agent' ? 'AGENT' : 'TRADER'} tone={party.party_type === 'agent' ? 'success' : 'primary'} />
+                  <Badge label={typeLabel(party.party_type).toUpperCase()} tone={party.party_type === 'agent' ? 'success' : 'primary'} />
                 </View>
-                <Text style={styles.small}>{party.phone}{party.account_number ? ` · ${party.account_number}` : ''}</Text>
+                {party.phone ? <Text style={styles.small}>{party.phone}</Text> : null}
                 {party.company ? <Text style={styles.company}>{party.company}</Text> : null}
               </View>
               <Icon name="chevron-forward" size={20} color={colors.muted} />
@@ -72,9 +75,18 @@ export default function CustomersScreen() {
                 <Money value={party.balance_amount} color={balanceColor} size="small" />
               </View>
               <View style={styles.balanceActions}>
-                <MiniAction icon="cart-outline" label="Sale" onPress={() => router.push({ pathname: '/(tabs)/sale', params: { customerId: String(party.id) } })} />
-                <MiniAction icon={owesStore ? 'wallet-outline' : 'paper-plane-outline'} label={owesStore ? 'Payment' : 'Pay'} onPress={() => router.push({ pathname: owesStore ? '/payment-new' : '/outgoing-payment', params: { partyId: String(party.id), name: party.name } })} />
-                <MiniAction icon="create-outline" label="Credit" onPress={() => router.push({ pathname: '/credit-new', params: { partyId: String(party.id), name: party.name } })} />
+                {party.party_type === 'factory' ? (
+                  <>
+                    <MiniAction icon="bag-add-outline" label="Purchase" onPress={() => router.push({ pathname: '/purchase-new', params: { factoryId: String(party.id) } })} />
+                    {!owesStore ? <MiniAction icon="paper-plane-outline" label="Pay" onPress={() => router.push({ pathname: '/outgoing-payment', params: { partyId: String(party.id), name: party.name } })} /> : null}
+                  </>
+                ) : (
+                  <>
+                    <MiniAction icon="cart-outline" label="Sale" onPress={() => router.push({ pathname: '/(tabs)/sale', params: { customerId: String(party.id) } })} />
+                    <MiniAction icon={owesStore ? 'wallet-outline' : 'paper-plane-outline'} label={owesStore ? 'Payment' : 'Pay'} onPress={() => router.push({ pathname: owesStore ? '/payment-new' : '/outgoing-payment', params: { partyId: String(party.id), name: party.name } })} />
+                    <MiniAction icon="create-outline" label="Credit" onPress={() => router.push({ pathname: '/credit-new', params: { partyId: String(party.id), name: party.name } })} />
+                  </>
+                )}
                 <MiniAction icon="ellipsis-horizontal" label="Profile" onPress={() => router.push({ pathname: '/customer-detail', params: { partyId: String(party.id) } })} />
               </View>
             </View>
@@ -83,13 +95,25 @@ export default function CustomersScreen() {
       }) : (
         <Card style={styles.emptyCard}>
           <View style={styles.emptyIcon}><Icon name="people-outline" size={32} color={colors.primary} /></View>
-          <Text style={styles.emptyTitle}>No {type}s found</Text>
-          <Text style={styles.emptyText}>Add the first {type} or try another search.</Text>
-          <Button title={`Add ${type === 'trader' ? 'Trader' : 'Agent'}`} icon="person-add-outline" onPress={() => router.push({ pathname: '/customer-new', params: { type } })} />
+          <Text style={styles.emptyTitle}>No {typePlural(type).toLowerCase()} found</Text>
+          <Text style={styles.emptyText}>Add the first {typeLabel(type).toLowerCase()} or try another search.</Text>
+          <Button title={`Add ${typeLabel(type)}`} icon={type === 'factory' ? 'business-outline' : 'person-add-outline'} onPress={() => router.push({ pathname: '/customer-new', params: { type } })} />
         </Card>
       )}
     </Screen>
   );
+}
+
+function typeLabel(type: PartyType) {
+  return type === 'factory' ? 'Factory' : type === 'agent' ? 'Agent' : 'Trader';
+}
+
+function typePlural(type: PartyType) {
+  return type === 'factory' ? 'Factories' : `${typeLabel(type)}s`;
+}
+
+function partyIcon(type: PartyType): React.ComponentProps<typeof Icon>['name'] {
+  return type === 'factory' ? 'business-outline' : type === 'agent' ? 'people-outline' : 'person-outline';
 }
 
 function MiniAction({ icon, label, onPress }: { icon: React.ComponentProps<typeof Icon>['name']; label: string; onPress: () => void }) {

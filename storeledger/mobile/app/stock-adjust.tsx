@@ -1,12 +1,13 @@
 import React, { useState } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, View } from 'react-native';
+import { Text } from '@/i18n';
 import { router, useLocalSearchParams } from 'expo-router';
 import { Button, Card, Icon, Input, Message, Screen, SectionHeader, Title } from '@/components/ui';
 import { apiFetch, errorMessage } from '@/lib/api';
 import { colors, radius, spacing } from '@/theme';
 
 export default function StockAdjustScreen() {
-  const { productId, name, piecesPerUnit = '1', unit = 'unit', mode = 'received' } = useLocalSearchParams<{ productId: string; name: string; piecesPerUnit?: string; unit?: string; mode?: string }>();
+  const { productId, name, factoryName = '', piecesPerUnit = '1', unit = 'unit', mode = 'received' } = useLocalSearchParams<{ productId: string; name: string; factoryName?: string; piecesPerUnit?: string; unit?: string; mode?: string }>();
   const adjusting = mode === 'adjust';
   const [direction, setDirection] = useState<'increase' | 'decrease'>('increase');
   const [quantity, setQuantity] = useState('');
@@ -34,7 +35,7 @@ export default function StockAdjustScreen() {
       {error ? <Message text={error} tone="error" /> : null}
       <Card style={styles.productCard}>
         <View style={styles.productIcon}><Icon name="cube-outline" size={25} color={colors.primary} /></View>
-        <View style={styles.flex}><Text style={styles.productName}>{name}</Text><Text style={styles.small}>{adjusting ? 'Manual stock correction' : 'Stock receipt'} · ×{piecesPerUnit} pieces per {unit}</Text></View>
+        <View style={styles.flex}><Text style={styles.productName}>{name}</Text>{factoryName ? <Text style={styles.factory}>Factory {factoryName}</Text> : null}<Text style={styles.small}>{adjusting ? 'Manual stock correction' : 'Stock receipt'} · ×{piecesPerUnit} pieces per {unit}</Text></View>
       </Card>
 
       {adjusting ? (
@@ -69,6 +70,7 @@ const styles = StyleSheet.create({
   productCard: { flexDirection: 'row', alignItems: 'center', gap: spacing.mdSm },
   productIcon: { width: 52, height: 52, borderRadius: radius.md, backgroundColor: colors.primarySoft, alignItems: 'center', justifyContent: 'center' },
   productName: { color: colors.text, fontSize: 17, fontWeight: '900' },
+  factory: { color: colors.primary, fontSize: 11, fontWeight: '900', marginTop: 3 },
   small: { color: colors.muted, fontSize: 12, marginTop: 2 },
   group: { gap: spacing.sm },
   row: { flexDirection: 'row', gap: spacing.sm },

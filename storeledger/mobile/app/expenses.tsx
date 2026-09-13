@@ -1,5 +1,6 @@
 import React, { useCallback, useState } from 'react';
-import { Alert, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, View } from 'react-native';
+import { localizedAlert, Text, useI18n } from '@/i18n';
 import { router, useFocusEffect } from 'expo-router';
 import { useAuth } from '@/auth/AuthContext';
 import { BarChart } from '@/components/BarChart';
@@ -9,6 +10,7 @@ import { colors, radius, spacing } from '@/theme';
 import type { Expense, ExpenseSummary, Paginated } from '@/types';
 
 export default function ExpensesScreen() {
+  const { t } = useI18n();
   const { store, role } = useAuth();
   const [summary, setSummary] = useState<ExpenseSummary | null>(null);
   const [items, setItems] = useState<Expense[]>([]);
@@ -53,13 +55,13 @@ export default function ExpensesScreen() {
     }
   };
 
-  const reverseExpense = (expense: Expense) => Alert.alert('Reverse expense?', 'The record stays in the audit history and is excluded from totals.', [{ text: 'Cancel' }, { text: 'Reverse', style: 'destructive', onPress: async () => { try { await apiFetch(`/expenses/${expense.id}/reverse/`, { method: 'POST', body: JSON.stringify({ reason: 'Reversed from mobile app' }) }); await load(); } catch (nextError) { setError(errorMessage(nextError)); } } }]);
+  const reverseExpense = (expense: Expense) => localizedAlert('Reverse expense?', 'The record stays in the audit history and is excluded from totals.', [{ text: 'Cancel' }, { text: 'Reverse', style: 'destructive', onPress: async () => { try { await apiFetch(`/expenses/${expense.id}/reverse/`, { method: 'POST', body: JSON.stringify({ reason: 'Reversed from mobile app' }) }); await load(); } catch (nextError) { setError(errorMessage(nextError)); } } }]);
 
   if (loading && !summary) return <Screen scroll={false}><Loading /></Screen>;
   const budgetPercentage = Math.min(Number(summary?.current_month.percentage || 0), 100);
   return (
     <Screen>
-      <Title eyebrow="Operating costs" subtitle="Track expenses and cash paid to suppliers or people">Expenses</Title>
+      <Title eyebrow="Operating costs" subtitle="Track expenses and cash paid to factories or people">Expenses</Title>
       {error ? <Message text={error} tone="error" /> : null}
       {success ? <Message text={success} tone="success" /> : null}
 
@@ -97,7 +99,7 @@ export default function ExpensesScreen() {
                 <View style={styles.metaRow}><Badge label={item.category_name.toUpperCase()} tone="danger" /><Text style={styles.small}>{item.expense_date} · {item.payment_method}</Text></View>
                 {item.reference ? <Text style={styles.reference}>Ref: {item.reference}</Text> : null}
               </View>
-              <View style={styles.amountColumn}><Money value={item.amount} currency={store?.currency} color={colors.danger} size="small" />{canManage ? <Pressable accessibilityLabel="Reverse expense" onPress={() => reverseExpense(item)} style={styles.reverseButton}><Icon name="arrow-undo-outline" size={16} color={colors.danger} /><Text style={styles.reverse}>Reverse</Text></Pressable> : null}</View>
+              <View style={styles.amountColumn}><Money value={item.amount} currency={store?.currency} color={colors.danger} size="small" />{canManage ? <Pressable accessibilityLabel={t('Reverse expense')} onPress={() => reverseExpense(item)} style={styles.reverseButton}><Icon name="arrow-undo-outline" size={16} color={colors.danger} /><Text style={styles.reverse}>Reverse</Text></Pressable> : null}</View>
             </View>
           ))}
         </Card>

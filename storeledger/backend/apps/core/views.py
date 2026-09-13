@@ -13,13 +13,13 @@ from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from rest_framework import mixins, status, viewsets
 from rest_framework.decorators import action
+from rest_framework.exceptions import ValidationError
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from .models import (
     AuditEvent,
-    Category,
     Expense,
     ExpenseCategory,
     FinancialTransaction,
@@ -39,7 +39,6 @@ from .models import (
     MonthlyBudget,
 )
 from .serializers import (
-    CategorySerializer,
     ExpenseCategorySerializer,
     ExpenseSerializer,
     FinancialTransactionSerializer,
@@ -57,13 +56,67 @@ from .serializers import (
     UserSerializer,
     MonthlyBudgetSerializer,
 )
-from .services import ExpenseService, InventoryService, PaymentService, ReportService, SMSService, SaleInvoiceService, local_period_datetimes, money
+from .services import (
+    ExpenseService,
+    InventoryService,
+    PaymentService,
+    ReportService,
+    SMSService,
+    SaleInvoiceService,
+    TransactionReceiptService,
+    local_period_datetimes,
+    money,
+)
 from .tenant import StoreContextMixin, resolve_store
 
 
 ZERO = Decimal("0.00")
 WRITE_ROLES = (Membership.Role.OWNER, Membership.Role.MANAGER)
 SALES_ROLES = (Membership.Role.OWNER, Membership.Role.MANAGER, Membership.Role.CASHIER)
+
+
+def walk_in_transaction_data(sale):
+    """Expose a persisted walk-in Sale in the unified transaction history.
+
+    Walk-in customers intentionally have no Party ledger or running balance.
+    The Sale itself remains the authoritative, immutable transaction record.
+    """
+    return {
+        "id": f"walkin-{sale.id}",
+        "created_at": sale.created_at.isoformat(),
+        "party": None,
+        "party_name": "Walk-in Customer",
+        "party_type": "walk_in",
+        "transaction_type": FinancialTransaction.TransactionType.SALE,
+        "description": f"Walk-in sale {str(sale.id)[:8]}",
+        "sale_amount": str(money(sale.total)),
+        "payment_amount": str(money(sale.amount_paid)),
+        "credit_debit": "credit",
+        "delta": str(money(sale.total)),
+        "running_balance": "0.00",
+        "sale": str(sale.id),
+        "payment": None,
+        "purchase": None,
+        "note": sale.note,
+    }
+
+
+def recent_transaction_history(store, limit=8):
+    """Merge Party ledger entries and walk-in Sales without fake Party rows."""
+    ledger_entries = list(
+        FinancialTransaction.objects.select_related("party").filter(store=store).order_by("-created_at", "-id")[:limit]
+    )
+    walk_in_sales = list(
+        Sale.objects.filter(store=store, customer__isnull=True, status=Sale.Status.COMPLETED)
+        .order_by("-created_at", "-id")[:limit]
+    )
+    rows = [
+        (entry.created_at, dict(FinancialTransactionSerializer(entry).data))
+        for entry in ledger_entries
+    ]
+    rows.extend((sale.created_at, walk_in_transaction_data(sale)) for sale in walk_in_sales)
+    rows.sort(key=lambda row: row[0], reverse=True)
+    return [row[1] for row in rows[:limit]]
 
 
 class HealthView(APIView):
@@ -86,36 +139,14 @@ class StoreViewSetMixin(StoreContextMixin):
         return context
 
 
-class CategoryViewSet(StoreViewSetMixin, viewsets.ModelViewSet):
-    serializer_class = CategorySerializer
-    search_fields = ("name",)
-    ordering_fields = ("name", "created_at")
-
-    def get_queryset(self):
-        return Category.objects.filter(store=self.get_store(), is_active=True)
-
-    def perform_create(self, serializer):
-        self.require_roles(*WRITE_ROLES)
-        serializer.save()
-
-    def perform_update(self, serializer):
-        self.require_roles(*WRITE_ROLES)
-        serializer.save()
-
-    def perform_destroy(self, instance):
-        self.require_roles(*WRITE_ROLES)
-        instance.is_active = False
-        instance.save(update_fields=["is_active", "updated_at"])
-
-
 class ProductViewSet(StoreViewSetMixin, viewsets.ModelViewSet):
     serializer_class = ProductSerializer
-    search_fields = ("name", "sku")
-    ordering_fields = ("name", "sku", "selling_price", "created_at")
-    filterset_fields = ("category",)
+    search_fields = ("name", "factory__name")
+    ordering_fields = ("name", "factory__name", "selling_price", "created_at")
+    filterset_fields = ("factory",)
 
     def get_queryset(self):
-        queryset = Product.objects.select_related("category", "inventory").filter(store=self.get_store(), is_active=True)
+        queryset = Product.objects.select_related("factory", "inventory").filter(store=self.get_store(), is_active=True)
         if self.request.query_params.get("low_stock") in {"1", "true"}:
             queryset = queryset.filter(inventory__quantity__lte=F("minimum_stock_threshold"))
         if self.request.query_params.get("common") in {"1", "true"}:
@@ -182,7 +213,7 @@ class ProductViewSet(StoreViewSetMixin, viewsets.ModelViewSet):
 
 class PartyViewSet(StoreViewSetMixin, viewsets.ModelViewSet):
     serializer_class = PartySerializer
-    search_fields = ("name", "company", "phone", "account_number")
+    search_fields = ("name", "company", "phone")
     ordering_fields = ("name", "current_balance", "created_at")
     filterset_fields = ("party_type",)
 
@@ -199,6 +230,10 @@ class PartyViewSet(StoreViewSetMixin, viewsets.ModelViewSet):
 
     def perform_destroy(self, instance):
         self.require_roles(*WRITE_ROLES)
+        if instance.current_balance != ZERO:
+            raise ValidationError("Settle this balance before archiving the record.")
+        if instance.party_type == Party.PartyType.FACTORY and instance.products.filter(is_active=True).exists():
+            raise ValidationError("Archive or move this Factory's active Products before archiving the Factory.")
         instance.is_active = False
         instance.save(update_fields=["is_active", "updated_at"])
 
@@ -281,6 +316,16 @@ class SaleViewSet(StoreViewSetMixin, mixins.CreateModelMixin, mixins.ListModelMi
             filename=SaleInvoiceService.filename(sale),
             content_type="application/pdf",
         )
+
+    @action(detail=True, methods=["get"])
+    def receipt(self, request, pk=None):
+        sale = self.get_object()
+        language = "am" if request.query_params.get("language") == "am" else "en"
+        response = HttpResponse(TransactionReceiptService.render_sale(sale, language=language), content_type="image/png")
+        response["Content-Disposition"] = f'inline; filename="{TransactionReceiptService.filename("sale", sale)}"'
+        response["Cache-Control"] = "private, no-store"
+        response["Content-Language"] = language
+        return response
 
 
 class PaymentViewSet(StoreViewSetMixin, mixins.CreateModelMixin, mixins.ListModelMixin, mixins.RetrieveModelMixin, viewsets.GenericViewSet):
@@ -471,15 +516,87 @@ class PurchaseViewSet(StoreViewSetMixin, mixins.CreateModelMixin, mixins.ListMod
         self.require_roles(*WRITE_ROLES)
         return super().create(request, *args, **kwargs)
 
+    @action(detail=True, methods=["get"])
+    def receipt(self, request, pk=None):
+        purchase = self.get_object()
+        language = "am" if request.query_params.get("language") == "am" else "en"
+        response = HttpResponse(TransactionReceiptService.render_purchase(purchase, language=language), content_type="image/png")
+        response["Content-Disposition"] = f'inline; filename="{TransactionReceiptService.filename("purchase", purchase)}"'
+        response["Cache-Control"] = "private, no-store"
+        response["Content-Language"] = language
+        return response
+
+    @action(detail=True, methods=["get"])
+    def invoice(self, request, pk=None):
+        """Backward-friendly purchase invoice alias; the document is a PNG receipt."""
+        return self.receipt(request, pk=pk)
+
 
 class TransactionViewSet(StoreViewSetMixin, viewsets.ReadOnlyModelViewSet):
     serializer_class = FinancialTransactionSerializer
     search_fields = ("party__name", "description", "note")
-    ordering_fields = ("created_at", "delta", "running_balance")
+    ordering_fields = ("created_at",)
     filterset_fields = ("party", "transaction_type")
 
     def get_queryset(self):
         return FinancialTransaction.objects.select_related("party").filter(store=self.get_store())
+
+    def list(self, request, *args, **kwargs):
+        """Return Party-ledger activity together with persisted walk-in Sales."""
+        store = self.get_store()
+        search = request.query_params.get("search", "").strip()
+        transaction_type = request.query_params.get("transaction_type", "").strip()
+        party = request.query_params.get("party", "").strip()
+        ordering = request.query_params.get("ordering", "-created_at").strip()
+        descending = ordering != "created_at"
+
+        ledger = self.get_queryset()
+        if transaction_type:
+            ledger = ledger.filter(transaction_type=transaction_type)
+        if party:
+            ledger = ledger.filter(party_id=party)
+        if search:
+            ledger = ledger.filter(
+                Q(party__name__icontains=search)
+                | Q(description__icontains=search)
+                | Q(note__icontains=search)
+            )
+        ledger = ledger.order_by("-created_at" if descending else "created_at", "-id" if descending else "id")
+
+        walk_in_sales = Sale.objects.filter(
+            store=store,
+            customer__isnull=True,
+            status=Sale.Status.COMPLETED,
+        )
+        if party or (transaction_type and transaction_type != FinancialTransaction.TransactionType.SALE):
+            walk_in_sales = walk_in_sales.none()
+        elif search:
+            normalized_search = search.casefold().replace("-", "").replace(" ", "")
+            walk_in_match = normalized_search in "walkincustomer"
+            product_match = Q(note__icontains=search) | Q(items__product_name__icontains=search) | Q(items__factory_name__icontains=search)
+            walk_in_sales = walk_in_sales if walk_in_match else walk_in_sales.filter(product_match).distinct()
+        walk_in_sales = walk_in_sales.order_by("-created_at" if descending else "created_at", "-id" if descending else "id")
+
+        total_count = ledger.count() + walk_in_sales.count()
+        self.paginate_queryset(range(total_count))
+        if self.paginator is None:
+            end = total_count
+            start = 0
+        else:
+            start = self.paginator.page.start_index() - 1 if total_count else 0
+            end = self.paginator.page.end_index() if total_count else 0
+
+        ledger_rows = [
+            (entry.created_at, dict(FinancialTransactionSerializer(entry).data))
+            for entry in ledger[:end]
+        ]
+        walk_in_rows = [
+            (sale.created_at, walk_in_transaction_data(sale))
+            for sale in walk_in_sales[:end]
+        ]
+        rows = sorted([*ledger_rows, *walk_in_rows], key=lambda row: row[0], reverse=descending)
+        results = [row[1] for row in rows[start:end]]
+        return self.get_paginated_response(results) if self.paginator is not None else Response(results)
 
 
 class NotificationViewSet(StoreViewSetMixin, viewsets.ReadOnlyModelViewSet):
@@ -641,7 +758,11 @@ class DashboardView(StoreContextMixin, APIView):
         store_payables = Party.objects.filter(store=store, is_active=True, current_balance__lt=0).order_by("current_balance")
         receivables = customers_owing.aggregate(value=Coalesce(Sum("current_balance"), ZERO))["value"]
         payables = store_payables.aggregate(value=Coalesce(Sum("current_balance"), ZERO))["value"]
-        low_stock = Product.objects.filter(store=store, is_active=True, inventory__quantity__lte=F("minimum_stock_threshold"))
+        low_stock = Product.objects.select_related("factory", "inventory").filter(
+            store=store,
+            is_active=True,
+            inventory__quantity__lte=F("minimum_stock_threshold"),
+        )
         today_expenses = Expense.objects.filter(store=store, is_reversed=False, expense_date=today)
         month_expenses = Expense.objects.filter(
             store=store,
@@ -685,7 +806,7 @@ class DashboardView(StoreContextMixin, APIView):
                 first_positive_date = timezone.localtime(positive_since, ZoneInfo(store.timezone)).date()
                 if (today - first_positive_date).days >= overdue_threshold:
                     overdue_count += 1
-        recent_transactions = FinancialTransaction.objects.select_related("party").filter(store=store)[:8]
+        recent_transactions = recent_transaction_history(store, limit=8)
         today_transactions = FinancialTransaction.objects.select_related("party").filter(
             store=store,
             created_at__gte=start_at,
@@ -708,7 +829,7 @@ class DashboardView(StoreContextMixin, APIView):
                 "overdue_count": overdue_count,
                 "overdue_days": overdue_threshold,
                 "unread_notification_count": Notification.objects.filter(store=store, is_read=False, is_resolved=False).count(),
-                "recent_transactions": FinancialTransactionSerializer(recent_transactions, many=True).data,
+                "recent_transactions": recent_transactions,
                 "today_transactions": FinancialTransactionSerializer(today_transactions, many=True).data,
                 "low_stock": ProductSerializer(low_stock[:8], many=True, context={"store": store, "request": request}).data,
                 "customers_owing_list": PartySerializer(customers_owing[:8], many=True).data,
@@ -734,7 +855,7 @@ class DashboardDetailView(StoreContextMixin, APIView):
         ),
         "i_owe": (
             "I Owe",
-            "All active people or suppliers the store currently owes.",
+            "All active people or factories the store currently owes.",
         ),
         "today_expenses": (
             "Today's Expenses",
@@ -875,14 +996,13 @@ class GlobalSearchView(StoreContextMixin, APIView):
         query = request.query_params.get("q", "").strip()
         if len(query) < 2:
             return Response({"q": "Enter at least two characters."}, status=status.HTTP_400_BAD_REQUEST)
-        products = Product.objects.select_related("category", "inventory").filter(
-            Q(name__icontains=query) | Q(sku__icontains=query), store=store, is_active=True
+        products = Product.objects.select_related("factory", "inventory").filter(
+            Q(name__icontains=query) | Q(factory__name__icontains=query), store=store, is_active=True
         )[:8]
         parties = Party.objects.filter(
             Q(name__icontains=query)
             | Q(company__icontains=query)
-            | Q(phone__icontains=query)
-            | Q(account_number__icontains=query),
+            | Q(phone__icontains=query),
             store=store,
             is_active=True,
         )[:8]
@@ -920,7 +1040,6 @@ class DataExportView(StoreContextMixin, APIView):
 
     def _querysets(self, store):
         return {
-            "categories": Category.objects.filter(store=store).values(),
             "products": Product.objects.filter(store=store).values(),
             "parties": Party.objects.filter(store=store).values(),
             "sales": Sale.objects.filter(store=store).values(),

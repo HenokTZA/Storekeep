@@ -1,5 +1,6 @@
 import React, { useCallback, useState } from 'react';
-import { Alert, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, View } from 'react-native';
+import { localizedAlert, Text } from '@/i18n';
 import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { Badge, Button, Card, Icon, Input, Loading, Message, Money, Screen, SectionHeader, Title } from '@/components/ui';
 import { apiFetch, errorMessage } from '@/lib/api';
@@ -53,7 +54,7 @@ export default function OutgoingPaymentScreen() {
     setError('');
     try {
       await apiFetch('/payments/', { method: 'POST', body: JSON.stringify({ party_id: partyId, amount, payment_date: paymentDate, method, direction: 'sent', note, idempotency_key: createUuid() }) });
-      Alert.alert('Payment sent recorded', 'The I Owe balance, expense totals and today’s transactions were updated.');
+      localizedAlert('Payment sent recorded', 'The I Owe balance, expense totals and today’s transactions were updated.');
       router.back();
     } catch (nextError) {
       setError(errorMessage(nextError));
@@ -68,13 +69,13 @@ export default function OutgoingPaymentScreen() {
       <Title eyebrow="Outgoing payment" subtitle="Record money paid to settle an I Owe balance">Payment Sent</Title>
       {error ? <Message text={error} tone="error" /> : null}
 
-      <SectionHeader title="1. Who did you pay?" subtitle="Only people with an I Owe balance are shown" />
+      <SectionHeader title="1. Who did you pay?" subtitle="Only people or factories with an I Owe balance are shown" />
       <View style={styles.chips}>{parties.map(item => <Choice key={item.id} label={item.name} active={partyId === item.id} onPress={() => { setPartyId(item.id); setAmount(''); }} />)}</View>
-      {!parties.length ? <Message text="No people currently have an I Owe balance." tone="success" /> : null}
+      {!parties.length ? <Message text="No people or factories currently have an I Owe balance." tone="success" /> : null}
       {selected ? (
         <Card style={styles.balanceCard}>
           <View style={styles.avatar}><Text style={styles.avatarText}>{initials(selected.name)}</Text></View>
-          <View style={styles.flex}><Text style={styles.selectedName}>{selected.name}</Text><Text style={styles.help}>{selected.company || `${selected.party_type === 'agent' ? 'Agent' : 'Trader'} · ${selected.phone}`}</Text><Badge label="I OWE" tone="success" /></View>
+          <View style={styles.flex}><Text style={styles.selectedName}>{selected.name}</Text><Text style={styles.help}>{selected.company || `${partyTypeLabel(selected.party_type)}${selected.phone ? ` · ${selected.phone}` : ''}`}</Text><Badge label="I OWE" tone="success" /></View>
           <View style={styles.amountRight}><Money value={selected.balance_amount} color={colors.success} /><Pressable accessibilityRole="button" onPress={() => setAmount(selected.balance_amount)}><Text style={styles.fullAmount}>Use full amount</Text></Pressable></View>
         </Card>
       ) : null}
@@ -105,6 +106,10 @@ function Method({ label, icon, active, onPress }: { label: string; icon: React.C
 
 function initials(name: string) {
   return name.split(/\s+/).filter(Boolean).slice(0, 2).map(part => part[0]?.toUpperCase()).join('') || '?';
+}
+
+function partyTypeLabel(type: Party['party_type']) {
+  return type === 'factory' ? 'Factory' : type === 'agent' ? 'Agent' : 'Trader';
 }
 
 const styles = StyleSheet.create({

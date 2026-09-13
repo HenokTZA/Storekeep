@@ -5,7 +5,7 @@ from decimal import Decimal
 from django.contrib.auth.models import User
 from django.core.management.base import BaseCommand
 
-from apps.core.models import Category, Expense, ExpenseCategory, InventoryBalance, Membership, MonthlyBudget, Party, Product, Store, StoreSettings
+from apps.core.models import Expense, ExpenseCategory, InventoryBalance, Membership, MonthlyBudget, Party, Product, Store, StoreSettings
 from apps.core.services import InventoryService, PurchaseService, SaleService
 from apps.core.models import StockMovement
 
@@ -26,20 +26,27 @@ class Command(BaseCommand):
         store_settings.sms_enabled = False
         store_settings.save(update_fields=["sms_enabled", "updated_at"])
         Membership.objects.update_or_create(user=user, store=store, defaults={"role": Membership.Role.OWNER, "is_active": True})
-        category, _ = Category.objects.get_or_create(store=store, name="Electronics")
+        factories = {}
+        for name in ("FF", "TT", "ID"):
+            factory, _ = Party.objects.get_or_create(
+                store=store,
+                party_type=Party.PartyType.FACTORY,
+                name=name,
+                defaults={"phone": "", "sms_enabled": False},
+            )
+            factories[name] = factory
         product_specs = [
-            ("ESP32 Module", "ESP32-DEV", "450.00", "12", 50),
-            ("LED Driver", "LED-DRV-12", "100.00", "20", 54),
-            ("USB-C Cable", "USBC-1M", "180.00", "4", 60),
+            ("Shoe 356", "FF", "450.00", "12", 50),
+            ("Shoe 356", "TT", "100.00", "20", 54),
+            ("Shoe 410", "ID", "180.00", "4", 60),
         ]
         products = []
-        for name, sku, price, opening, pieces_per_unit in product_specs:
+        for name, factory_name, price, opening, pieces_per_unit in product_specs:
             product, product_created = Product.objects.get_or_create(
                 store=store,
-                sku=sku,
+                factory=factories[factory_name],
+                name=name,
                 defaults={
-                    "name": name,
-                    "category": category,
                     "pieces_per_unit": pieces_per_unit,
                     "selling_price": Decimal(price),
                     "purchase_price": Decimal(price) * Decimal("0.75"),
@@ -62,13 +69,13 @@ class Command(BaseCommand):
             store=store,
             party_type=Party.PartyType.TRADER,
             phone="+251911111111",
-            defaults={"name": "Ahmed Trading", "account_number": "TR-001"},
+            defaults={"name": "Ahmed Trading"},
         )
         agent, _ = Party.objects.get_or_create(
             store=store,
             party_type=Party.PartyType.AGENT,
             phone="+251922222222",
-            defaults={"name": "Selam Agent", "account_number": "AG-001"},
+            defaults={"name": "Selam Agent"},
         )
         if not store.sales.exists():
             SaleService.create(
@@ -106,7 +113,7 @@ class Command(BaseCommand):
         PurchaseService.create(
             store=store,
             user=user,
-            supplier_id=agent.id,
+            supplier_id=factories["ID"].id,
             amount_paid="100",
             items=[{"product_id": products[2].id, "quantity": "3", "unit_cost": "120"}],
             purchase_date=date.today(),

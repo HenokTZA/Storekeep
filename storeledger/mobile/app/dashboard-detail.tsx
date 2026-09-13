@@ -1,5 +1,6 @@
 import React, { useCallback, useMemo, useState } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, View } from 'react-native';
+import { Text, useI18n } from '@/i18n';
 import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { Button, Card, Icon, Loading, Message, Money, Screen, Title } from '@/components/ui';
 import { cachedGet, errorMessage } from '@/lib/api';
@@ -86,7 +87,7 @@ export default function DashboardDetailScreen() {
         return <ExpenseCard key={`expense-${activity.expense.id}`} expense={activity.expense} currency={data.currency} />;
       })}
 
-      {(data.kind === 'owes_me' || data.kind === 'i_owe') ? <SectionTitle>{data.kind === 'owes_me' ? 'Customers Owing the Store' : 'People and Suppliers to Pay'}</SectionTitle> : null}
+      {(data.kind === 'owes_me' || data.kind === 'i_owe') ? <SectionTitle>{data.kind === 'owes_me' ? 'Customers Owing the Store' : 'People and Factories to Pay'}</SectionTitle> : null}
       {data.parties.map(party => <PartyCard key={party.id} party={party} currency={data.currency} />)}
 
       {!hasRecords ? <Message text="No records contribute to this dashboard card for the selected period." /> : null}
@@ -129,7 +130,7 @@ function SaleCard({ sale, currency, amountMode }: { sale: Sale; currency: string
       <View style={styles.itemList}>
         {sale.items.map(item => (
           <View key={item.id} style={styles.itemRow}>
-            <View style={styles.flex}><Text style={styles.itemName}>{item.product_name}</Text><Text style={styles.meta}>{formatQuantity(item.quantity)} units × {item.pieces_per_unit} pcs × {Number(item.unit_price).toFixed(2)} {currency}</Text><Text style={styles.meta}>{formatQuantity(item.total_pieces)} total pieces</Text></View>
+            <View style={styles.flex}><Text style={styles.itemName}>{item.product_name}</Text><Text style={styles.factoryMeta}>Factory {item.factory_name}</Text><Text style={styles.meta}>{formatQuantity(item.quantity)} units × {item.pieces_per_unit} pcs × actual price {Number(item.unit_price).toFixed(2)} {currency}</Text><Text style={styles.meta}>{formatQuantity(item.total_pieces)} total pieces</Text></View>
             <Text style={styles.lineTotal}>{Number(item.line_total).toFixed(2)} {currency}</Text>
           </View>
         ))}
@@ -158,11 +159,12 @@ function PaymentCard({ payment, currency }: { payment: Payment; currency: string
 }
 
 function PartyCard({ party, currency }: { party: Party; currency: string }) {
+  const { t } = useI18n();
   const color = party.balance_color === 'red' ? colors.danger : party.balance_color === 'green' ? colors.success : colors.neutral;
   return (
-    <Pressable accessibilityRole="button" accessibilityLabel={`Open ${party.name} profile`} onPress={() => openParty(party.id)} style={({ pressed }) => pressed && styles.pressed}>
+    <Pressable accessibilityRole="button" accessibilityLabel={t(`Open ${party.name} profile`)} onPress={() => openParty(party.id)} style={({ pressed }) => pressed && styles.pressed}>
       <Card>
-        <View style={styles.cardHeader}><View style={styles.flex}><Text style={styles.cardTitle}>{party.name}</Text>{party.company ? <Text style={styles.meta}>{party.company}</Text> : null}<Text style={styles.meta}>{friendlyType(party.party_type)} · {party.phone}</Text>{party.account_number ? <Text style={styles.meta}>Account: {party.account_number}</Text> : null}</View><View style={styles.amountRight}><Text style={[styles.balanceLabel, { color }]}>{party.balance_label}</Text><Money value={party.balance_amount} currency={currency} color={color} /></View></View>
+        <View style={styles.cardHeader}><View style={styles.flex}><Text style={styles.cardTitle}>{party.name}</Text>{party.company ? <Text style={styles.meta}>{party.company}</Text> : null}<Text style={styles.meta}>{friendlyType(party.party_type)}{party.phone ? ` · ${party.phone}` : ''}</Text></View><View style={styles.amountRight}><Text style={[styles.balanceLabel, { color }]}>{party.balance_label}</Text><Money value={party.balance_amount} currency={currency} color={color} /></View></View>
         <Text style={styles.profileLink}>Open profile and transaction history ›</Text>
       </Card>
     </Pressable>
@@ -213,6 +215,7 @@ const styles = StyleSheet.create({
   itemList: { borderTopWidth: 1, borderTopColor: colors.border, marginTop: spacing.md, paddingTop: spacing.sm, gap: spacing.sm },
   itemRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
   itemName: { color: colors.text, fontWeight: '800' },
+  factoryMeta: { color: colors.primary, fontSize: 10, fontWeight: '900', marginTop: 3 },
   lineTotal: { color: colors.text, fontWeight: '800' },
   amountRow: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', gap: spacing.sm, borderTopWidth: 1, borderTopColor: colors.border, marginTop: spacing.md, paddingTop: spacing.sm },
   paid: { color: colors.success, fontWeight: '800' },
