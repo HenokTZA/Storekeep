@@ -9,7 +9,7 @@ This matrix maps the supplied SRS to the delivered implementation and an accepta
 | Dashboard | Seven clickable summaries with exact sale/collection/balance/expense/transaction drill-downs, quick actions, alerts and recent ledger entries | Dashboard drill-down checklist and tenant-isolated API test |
 | Stock | Factory-scoped Product CRUD, Factory filter, pieces-per-unit distributor packs, full preselected purchase receipt from Product cards, manual adjust/archive, indexed search and immutable movement history | Stock/Factory checklist and service tests |
 | Traders | Filtered customer type, profile, search, sale, payment, credit/loan, archive and history | Trader checklist |
-| Agents | Same ledger rules and functions as Traders, with separate type/filter, a 1.5%-below-standard default and per-sale negotiation | Agent pricing API/service tests and checklist |
+| Agents | Same ledger rules and functions as Traders, with separate type/filter, a 1.875% discount applied to the standard or edited sale price, and per-sale negotiation | Agent pricing API/service tests and checklist |
 | Factories | Third People filter with add/detail/edit/archive, product ownership, purchase selection and payable/payment history | Factory API, purchase-integrity and mobile acceptance tests |
 | Balance rules | Append-only signed ledger; red positive `Owes Me`, green negative `I Owe`, neutral zero | Partial/overpayment tests |
 | Sales | Walk-in/Trader/Agent, per-transaction price negotiation for all customer modes, three-item searchable product pages, direct large-unit entry with inline stock-limit explanation, pack-unit totals, outstanding-aware preview, PNG View/Download/Share, partial payment, atomic stock and ledger posting, idempotency | Sale API/service/receipt tests |

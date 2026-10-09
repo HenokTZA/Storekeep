@@ -42,7 +42,7 @@ from .models import (
 
 
 ZERO = Decimal("0.00")
-AGENT_DISCOUNT_RATE = Decimal("0.015")
+AGENT_DISCOUNT_RATE = Decimal("0.01875")
 
 
 def money(value) -> Decimal:
@@ -50,7 +50,7 @@ def money(value) -> Decimal:
 
 
 def agent_selling_price(value) -> Decimal:
-    """Return the default Agent price: 1.5% below the Product selling price."""
+    """Return the Agent price after a 1.875% discount from the entered base price."""
     return money(Decimal(str(value)) * (Decimal("1.00") - AGENT_DISCOUNT_RATE))
 
 
@@ -164,16 +164,17 @@ class SaleService:
             if item_quantity <= 0:
                 raise ValidationError({"items": "Every quantity must be greater than zero."})
             if item.get("unit_price") is not None:
-                # A negotiated price is a snapshot for this sale item only. It
-                # applies to Traders, Agents and walk-in customers, and never
-                # changes the product's standard selling price.
-                unit_price = money(item["unit_price"])
-            elif customer and customer.party_type == Party.PartyType.AGENT:
-                unit_price = agent_selling_price(product.selling_price)
+                # The submitted price is the editable base price. Agent
+                # discounts apply after that override; the saved unit_price is
+                # always the final amount charged for this sale item.
+                base_unit_price = money(item["unit_price"])
             else:
-                # Walk-in and Trader sales default to the standard price but
-                # may explicitly override it above for one transaction.
-                unit_price = money(product.selling_price)
+                base_unit_price = money(product.selling_price)
+            if customer and customer.party_type == Party.PartyType.AGENT:
+                unit_price = agent_selling_price(base_unit_price)
+            else:
+                # Traders and walk-in customers pay the entered base price.
+                unit_price = base_unit_price
             if unit_price < 0:
                 raise ValidationError({"items": "Unit price cannot be negative."})
             pieces_per_unit = product.pieces_per_unit
@@ -339,12 +340,11 @@ class SaleInvoiceService:
             pdf.roundRect(left, y - 17, right - left, 24, 4, fill=1, stroke=0)
             pdf.setFillColor(pdf_colors.HexColor("#176B54"))
             pdf.setFont("Helvetica-Bold", 7.5)
-            pdf.drawString(left + 5, y - 8, "PRODUCT")
-            pdf.drawRightString(308, y - 8, "UNITS")
-            pdf.drawRightString(365, y - 8, "PCS/UNIT")
-            pdf.drawRightString(423, y - 8, "PIECES")
-            pdf.drawRightString(490, y - 8, "PRICE/PC")
-            pdf.drawRightString(right - 5, y - 8, "AMOUNT")
+            pdf.drawString(left + 5, y - 8, "ITEM")
+            pdf.drawRightString(310, y - 8, "PRICE/PC")
+            pdf.drawRightString(380, y - 8, "PCS/UNIT")
+            pdf.drawRightString(450, y - 8, "UNITS BOUGHT")
+            pdf.drawRightString(right - 5, y - 8, "TOTAL PRICE")
             return y - 28
 
         page_header()
@@ -367,23 +367,21 @@ class SaleInvoiceService:
                 pdf.showPage()
                 page_header()
                 y = table_header(page_height - 178)
-            total_pieces = item.quantity * item.pieces_per_unit
             pdf.setFillColor(pdf_colors.HexColor("#16251F"))
             pdf.setFont("Helvetica-Bold", 8.5)
             pdf.drawString(left + 5, y, clean(item.product_name, 34))
             pdf.setFont("Helvetica", 7.5)
             pdf.drawString(left + 5, y - 12, clean(f"Factory: {item.factory_name}", 34))
-            pdf.drawRightString(308, y - 2, f"{item.quantity:g}")
-            pdf.drawRightString(365, y - 2, str(item.pieces_per_unit))
-            pdf.drawRightString(423, y - 2, f"{total_pieces:g}")
-            pdf.drawRightString(490, y - 2, f"{money(item.unit_price):,.2f}")
+            pdf.drawRightString(310, y - 2, f"{money(item.unit_price):,.2f}")
+            pdf.drawRightString(380, y - 2, str(item.pieces_per_unit))
+            pdf.drawRightString(450, y - 2, f"{item.quantity:g}")
             pdf.setFont("Helvetica-Bold", 8)
             pdf.drawRightString(right - 5, y - 2, f"{money(item.line_total):,.2f}")
             pdf.setStrokeColor(pdf_colors.HexColor("#D7E1DD"))
             pdf.line(left, y - 20, right, y - 20)
             y -= 34
 
-        if y < 154:
+        if y < 184:
             pdf.setFont("Helvetica", 7)
             pdf.setFillColor(pdf_colors.HexColor("#63736D"))
             pdf.drawCentredString(page_width / 2, 24, f"{invoice_number} · Page {page_number}")
@@ -400,22 +398,26 @@ class SaleInvoiceService:
             sale.outstanding if sale.customer else ZERO,
         )
         pdf.setFillColor(pdf_colors.HexColor("#F4F8F6"))
-        pdf.roundRect(310, summary_top - 116, right - 310, 116, 7, fill=1, stroke=0)
+        pdf.roundRect(310, summary_top - 136, right - 310, 136, 7, fill=1, stroke=0)
         pdf.setFillColor(pdf_colors.HexColor("#4F625B"))
         pdf.setFont("Helvetica", 9)
-        pdf.drawString(324, summary_top - 20, "Subtotal")
-        pdf.drawString(324, summary_top - 41, "Amount paid")
-        pdf.drawString(324, summary_top - 62, "This sale outstanding")
+        pdf.drawString(324, summary_top - 20, "Total")
+        pdf.drawString(324, summary_top - 40, "Amount paid")
+        pdf.drawString(324, summary_top - 60, "This sale outstanding")
+        previous_balance = money(total_balance - sale.outstanding) if sale.customer else ZERO
+        previous_label = "Previous customer credit" if previous_balance < ZERO else "Previous outstanding"
+        pdf.drawString(324, summary_top - 80, previous_label)
         total_balance_label = "Total outstanding" if total_balance >= 0 else "Total customer credit"
         pdf.setFont("Helvetica-Bold", 9)
-        pdf.drawString(324, summary_top - 88, total_balance_label)
+        pdf.drawString(324, summary_top - 108, total_balance_label)
         pdf.setFillColor(pdf_colors.HexColor("#16251F"))
-        pdf.drawRightString(right - 12, summary_top - 20, amount(sale.subtotal))
-        pdf.drawRightString(right - 12, summary_top - 41, amount(sale.amount_paid))
+        pdf.drawRightString(right - 12, summary_top - 20, amount(sale.total))
+        pdf.drawRightString(right - 12, summary_top - 40, amount(sale.amount_paid))
         pdf.setFont("Helvetica-Bold", 10)
-        pdf.drawRightString(right - 12, summary_top - 62, amount(sale.outstanding))
+        pdf.drawRightString(right - 12, summary_top - 60, amount(sale.outstanding))
+        pdf.drawRightString(right - 12, summary_top - 80, amount(previous_balance))
         pdf.setFillColor(pdf_colors.HexColor("#A83B32") if total_balance > 0 else pdf_colors.HexColor("#176B54"))
-        pdf.drawRightString(right - 12, summary_top - 88, amount(abs(total_balance)))
+        pdf.drawRightString(right - 12, summary_top - 108, amount(abs(total_balance)))
         pdf.setFont("Helvetica", 7.5)
         pdf.setFillColor(pdf_colors.HexColor("#63736D"))
         pdf.drawString(left, summary_top - 20, "Quantity is shown in sale units/packs.")
@@ -451,6 +453,11 @@ class TransactionReceiptService:
         "PRODUCT DETAILS": "የምርት ዝርዝር",
         "SALE AMOUNT": "የሽያጭ መጠን",
         "PURCHASE AMOUNT": "የግዢ መጠን",
+        "ITEM": "ዕቃ",
+        "PRICE / PIECE": "ዋጋ / ቁራጭ",
+        "PIECES / UNIT": "ቁራጮች / ዩኒት",
+        "UNITS BOUGHT": "የተገዙ ዩኒቶች",
+        "TOTAL PRICE": "ጠቅላላ ዋጋ",
         "Factory": "ፋብሪካ",
         "units": "ዩኒቶች",
         "pcs/unit": "ቁራጭ/ዩኒት",
@@ -460,6 +467,8 @@ class TransactionReceiptService:
         "AMOUNT PAID": "የተከፈለ",
         "THIS SALE OUTSTANDING": "የዚህ ሽያጭ ቀሪ ዕዳ",
         "THIS PURCHASE OUTSTANDING": "የዚህ ግዢ ቀሪ ዕዳ",
+        "PREVIOUS OUTSTANDING": "ያለፈ ቀሪ ዕዳ",
+        "PREVIOUS CUSTOMER CREDIT": "ያለፈ የደንበኛ ክሬዲት",
         "TOTAL OUTSTANDING": "ጠቅላላ ቀሪ ዕዳ",
         "TOTAL CUSTOMER CREDIT": "ጠቅላላ የደንበኛ ክሬዲት",
         "TOTAL OWED TO FACTORY": "ለፋብሪካ ጠቅላላ የሚከፈል",
@@ -524,7 +533,9 @@ class TransactionReceiptService:
 
     @staticmethod
     def _quantity_text(value) -> str:
-        result = f"{Decimal(str(value)):f}".rstrip("0").rstrip(".")
+        result = f"{Decimal(str(value)):f}"
+        if "." in result:
+            result = result.rstrip("0").rstrip(".")
         return result or "0"
 
     @staticmethod
@@ -551,17 +562,17 @@ class TransactionReceiptService:
 
     @staticmethod
     def _render(*, kind, store, number, counterparty_name, counterparty_phone, created_at,
-                cashier, status, items, total, amount_paid, outstanding, total_balance,
+                cashier, status, items, total, amount_paid, outstanding, previous_outstanding, total_balance,
                 reference="", note="", language="en") -> bytes:
         width = TransactionReceiptService.WIDTH
         margin = 64
-        row_height = 132
+        row_height = 120
         probe = Image.new("RGB", (width, 100), "white")
         probe_draw = ImageDraw.Draw(probe)
         note_font = TransactionReceiptService._font(25, bold=True)
         note_lines = TransactionReceiptService._wrap(probe_draw, note, note_font, width - (margin * 2) - 48)[:4]
         notes_height = (len(note_lines) * 36 + 94 if note_lines else 0) + (76 if reference else 0)
-        height = max(1420, 1220 + len(items) * row_height + notes_height)
+        height = max(1420, 1340 + len(items) * row_height + notes_height)
         image = Image.new("RGBA", (width, height), TransactionReceiptService.BACKGROUND)
         draw = ImageDraw.Draw(image)
 
@@ -569,6 +580,7 @@ class TransactionReceiptService:
         store_font = TransactionReceiptService._font(35, bold=True)
         heading_font = TransactionReceiptService._font(29, bold=True)
         label_font = TransactionReceiptService._font(21, bold=True)
+        table_label_font = TransactionReceiptService._font(18, bold=True)
         body_font = TransactionReceiptService._font(25, bold=True)
         small_font = TransactionReceiptService._font(20, bold=True)
         amount_font = TransactionReceiptService._font(30, bold=True)
@@ -612,43 +624,88 @@ class TransactionReceiptService:
         y += 130
 
         items_top = y
-        items_bottom = y + 72 + len(items) * row_height
+        title_height = 62
+        column_header_height = 86
+        items_bottom = y + title_height + column_header_height + len(items) * row_height
         draw.rounded_rectangle((margin, items_top, width - margin, items_bottom), radius=24, fill="white", outline=TransactionReceiptService.BORDER, width=2)
-        draw.rounded_rectangle((margin, items_top, width - margin, items_top + 72), radius=24, fill=TransactionReceiptService.PRIMARY_SOFT)
-        draw.rectangle((margin, items_top + 48, width - margin, items_top + 72), fill=TransactionReceiptService.PRIMARY_SOFT)
-        draw.text((margin + 28, items_top + 20), TransactionReceiptService._label("PRODUCT DETAILS", language), fill=TransactionReceiptService.PRIMARY, font=label_font)
-        amount_header = TransactionReceiptService._label("SALE AMOUNT" if kind == "sale" else "PURCHASE AMOUNT", language)
-        amount_header_box = draw.textbbox((0, 0), amount_header, font=label_font)
-        draw.text((width - margin - 28 - (amount_header_box[2] - amount_header_box[0]), items_top + 20), amount_header, fill=TransactionReceiptService.PRIMARY, font=label_font)
-        row_y = items_top + 72
+        draw.rounded_rectangle((margin, items_top, width - margin, items_top + title_height), radius=24, fill=TransactionReceiptService.PRIMARY_SOFT)
+        draw.rectangle((margin, items_top + 38, width - margin, items_top + title_height), fill=TransactionReceiptService.PRIMARY_SOFT)
+        draw.text((margin + 28, items_top + 17), TransactionReceiptService._label("PRODUCT DETAILS", language), fill=TransactionReceiptService.PRIMARY, font=label_font)
+
+        table_left = margin + 24
+        table_right = width - margin - 24
+        column_widths = (270, 205, 185, 180, 224)
+        column_edges = [table_left]
+        for column_width in column_widths:
+            column_edges.append(column_edges[-1] + column_width)
+        column_top = items_top + title_height
+        row_y = column_top + column_header_height
+        draw.rectangle((margin + 2, column_top, width - margin - 2, row_y), fill="#F2F7F5")
+        column_labels = ("ITEM", "PRICE / PIECE", "PIECES / UNIT", "UNITS BOUGHT", "TOTAL PRICE")
+        for column_index, header in enumerate(column_labels):
+            cell_left, cell_right = column_edges[column_index], column_edges[column_index + 1]
+            header_lines = TransactionReceiptService._wrap(
+                draw,
+                TransactionReceiptService._label(header, language),
+                table_label_font,
+                cell_right - cell_left - 20,
+            )[:3]
+            header_height = len(header_lines) * 23
+            header_y = column_top + max(8, (column_header_height - header_height) // 2)
+            for line_index, line in enumerate(header_lines):
+                line_box = draw.textbbox((0, 0), line, font=table_label_font)
+                line_width = line_box[2] - line_box[0]
+                if column_index == 0:
+                    text_x = cell_left + 14
+                else:
+                    text_x = cell_left + (cell_right - cell_left - line_width) / 2
+                draw.text((text_x, header_y + line_index * 23), line, fill=TransactionReceiptService.PRIMARY, font=table_label_font)
+        for edge in column_edges[1:-1]:
+            draw.line((edge, column_top, edge, items_bottom), fill=TransactionReceiptService.BORDER, width=1)
+
         for index, item in enumerate(items):
-            if index:
-                draw.line((margin + 24, row_y, width - margin - 24, row_y), fill=TransactionReceiptService.BORDER, width=2)
-            product_name = str(item["product_name"])[:52]
-            draw.text((margin + 28, row_y + 18), product_name, fill=TransactionReceiptService.TEXT, font=body_font)
-            amount_text = f"{money(item['line_total']):,.2f} {store.currency}"
-            amount_box = draw.textbbox((0, 0), amount_text, font=amount_font)
-            draw.text((width - margin - 28 - (amount_box[2] - amount_box[0]), row_y + 17), amount_text, fill=TransactionReceiptService.TEXT, font=amount_font)
+            draw.line((table_left, row_y, table_right, row_y), fill=TransactionReceiptService.BORDER, width=2)
+            item_left, item_right = column_edges[0], column_edges[1]
+            product_lines = TransactionReceiptService._wrap(
+                draw, str(item["product_name"]), body_font, item_right - item_left - 28
+            )[:2]
+            for line_index, line in enumerate(product_lines):
+                draw.text((item_left + 14, row_y + 12 + line_index * 31), line, fill=TransactionReceiptService.TEXT, font=body_font)
             factory_label = TransactionReceiptService._label("Factory", language)
-            draw.text((margin + 28, row_y + 59), f"{factory_label}: {str(item['factory_name'])[:44]}", fill=TransactionReceiptService.PRIMARY, font=small_font)
-            units = TransactionReceiptService._quantity_text(item["quantity"])
-            pieces = TransactionReceiptService._quantity_text(Decimal(str(item["quantity"])) * int(item["pieces_per_unit"]))
-            units_label = TransactionReceiptService._label("units", language)
-            pack_label = TransactionReceiptService._label("pcs/unit", language)
-            piece_label = TransactionReceiptService._label("pc", language)
-            total_pieces_label = TransactionReceiptService._label("total pieces", language)
-            calculation = f"{units} {units_label} x {item['pieces_per_unit']} {pack_label} x {money(item['unit_rate']):,.2f} {store.currency}/{piece_label}"
-            draw.text((margin + 28, row_y + 94), f"{calculation}  |  {pieces} {total_pieces_label}", fill=TransactionReceiptService.MUTED, font=small_font)
+            draw.text((item_left + 14, row_y + 82), f"{factory_label}: {str(item['factory_name'])[:30]}", fill=TransactionReceiptService.PRIMARY, font=small_font)
+
+            cell_values = (
+                None,
+                f"{money(item['unit_rate']):,.2f} {store.currency}",
+                TransactionReceiptService._quantity_text(item["pieces_per_unit"]),
+                TransactionReceiptService._quantity_text(item["quantity"]),
+                f"{money(item['line_total']):,.2f} {store.currency}",
+            )
+            for column_index, value in enumerate(cell_values[1:], start=1):
+                cell_left, cell_right = column_edges[column_index], column_edges[column_index + 1]
+                value_font = amount_font if column_index == 4 else body_font
+                value_box = draw.textbbox((0, 0), value, font=value_font)
+                value_width = value_box[2] - value_box[0]
+                text_x = cell_right - 12 - value_width if column_index in {1, 4} else cell_left + (cell_right - cell_left - value_width) / 2
+                draw.text((text_x, row_y + 42), value, fill=TransactionReceiptService.TEXT, font=value_font)
             row_y += row_height
         y = items_bottom + 34
 
         summary_height = 302
         draw.rounded_rectangle((margin, y, width - margin, y + summary_height), radius=24, fill="white", outline=TransactionReceiptService.BORDER, width=2)
         transaction_label = TransactionReceiptService._label("THIS SALE OUTSTANDING" if kind == "sale" else "THIS PURCHASE OUTSTANDING", language)
-        labels = [TransactionReceiptService._label("TOTAL", language), TransactionReceiptService._label("AMOUNT PAID", language), transaction_label]
-        values = [total, amount_paid, abs(outstanding)]
+        previous_label = "PREVIOUS OUTSTANDING"
+        if kind == "sale" and money(previous_outstanding) < ZERO:
+            previous_label = "PREVIOUS CUSTOMER CREDIT"
+        labels = [
+            TransactionReceiptService._label("TOTAL", language),
+            TransactionReceiptService._label("AMOUNT PAID", language),
+            transaction_label,
+            TransactionReceiptService._label(previous_label, language),
+        ]
+        values = [total, amount_paid, abs(outstanding), previous_outstanding]
         for index, (label, value) in enumerate(zip(labels, values)):
-            row = y + 30 + index * 58
+            row = y + 20 + index * 43
             draw.text((margin + 30, row), label, fill=TransactionReceiptService.MUTED, font=label_font)
             value_text = f"{money(value):,.2f} {store.currency}"
             value_box = draw.textbbox((0, 0), value_text, font=amount_font)
@@ -698,7 +755,9 @@ class TransactionReceiptService:
         metadata.add_text("Store", store.name)
         metadata.add_text("Receipt", number)
         metadata.add_text("Transaction Type", kind)
+        metadata.add_text("Line Item Columns", "Item | Price / piece | Pieces / unit | Units bought | Total price")
         metadata.add_text("Transaction Outstanding", str(money(outstanding)))
+        metadata.add_text("Previous Outstanding", str(money(previous_outstanding)))
         metadata.add_text("Account Balance After", str(money(total_balance)))
         metadata.add_text("Language", language)
         image.convert("RGB").save(output, format="PNG", optimize=True, pnginfo=metadata)
@@ -709,6 +768,7 @@ class TransactionReceiptService:
         sale = Sale.objects.select_related("store", "customer", "created_by").prefetch_related("items", "ledger_entries").get(pk=sale.pk)
         local_created = timezone.localtime(sale.created_at, ZoneInfo(sale.store.timezone))
         total_balance = TransactionReceiptService._balance_after(sale, sale.outstanding if sale.customer else ZERO)
+        previous_outstanding = money(total_balance - sale.outstanding) if sale.customer else ZERO
         return TransactionReceiptService._render(
             kind="sale",
             store=sale.store,
@@ -729,6 +789,7 @@ class TransactionReceiptService:
             total=sale.total,
             amount_paid=sale.amount_paid,
             outstanding=sale.outstanding,
+            previous_outstanding=previous_outstanding,
             total_balance=total_balance,
             note=sale.note,
             language=language,
@@ -738,6 +799,7 @@ class TransactionReceiptService:
     def render_purchase(purchase: Purchase, language: str = "en") -> bytes:
         purchase = Purchase.objects.select_related("store", "supplier", "created_by").prefetch_related("items", "ledger_entries").get(pk=purchase.pk)
         total_balance = TransactionReceiptService._balance_after(purchase, -purchase.outstanding)
+        previous_outstanding = money(total_balance + purchase.outstanding)
         return TransactionReceiptService._render(
             kind="purchase",
             store=purchase.store,
@@ -758,6 +820,7 @@ class TransactionReceiptService:
             total=purchase.total,
             amount_paid=purchase.amount_paid,
             outstanding=purchase.outstanding,
+            previous_outstanding=previous_outstanding,
             total_balance=total_balance,
             reference=purchase.reference,
             note=purchase.note,

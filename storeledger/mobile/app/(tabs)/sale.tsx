@@ -1,20 +1,24 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Modal, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Modal, Pressable, ScrollView, StyleSheet, Switch, View } from 'react-native';
 import { localizedAlert, Text, useI18n } from '@/i18n';
 import { useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Badge, Button, Card, Icon, Input, Loading, Message, Money, Screen, SearchField, SectionHeader, Title } from '@/components/ui';
 import { useAuth } from '@/auth/AuthContext';
 import { apiFetch, cachedGet, errorMessage } from '@/lib/api';
+import { agentSellingPrice } from '@/lib/pricing';
 import { createUuid } from '@/lib/uuid';
 import { getLocalValue, removeLocalValue, setLocalValue } from '@/lib/database';
 import { colors, radius, shadow, spacing } from '@/theme';
 import type { Paginated, Party, Product } from '@/types';
 
 const PRODUCT_PAGE_SIZE = 3;
+const CUSTOMER_PAGE_SIZE = 5;
 
 type Draft = {
   customerId: number | null;
+  selectedCustomer?: Party | null;
+  isWalkIn?: boolean;
   quantities: Record<string, number>;
   selectedProducts?: Product[];
   customPrices?: Record<string, string>;
@@ -32,7 +36,14 @@ export default function SaleScreen() {
   const [productPage, setProductPage] = useState(1);
   const [productLoading, setProductLoading] = useState(false);
   const [parties, setParties] = useState<Party[]>([]);
-  const [customerId, setCustomerId] = useState<number | null>(null);
+  const [partyCount, setPartyCount] = useState(0);
+  const [customerQuery, setCustomerQuery] = useState('');
+  const [customerType, setCustomerType] = useState<'all' | 'trader' | 'agent'>('all');
+  const [customerPage, setCustomerPage] = useState(1);
+  const [partyLoading, setPartyLoading] = useState(false);
+  const [selectedCustomer, setSelectedCustomer] = useState<Party | null>(null);
+  const [isWalkIn, setIsWalkIn] = useState(false);
+  const customerRequest = useRef(0);
   const [quantities, setQuantities] = useState<Record<string, number>>({});
   const [selectedProducts, setSelectedProducts] = useState<Record<string, Product>>({});
   const [customPrices, setCustomPrices] = useState<Record<string, string>>({});
@@ -49,26 +60,35 @@ export default function SaleScreen() {
   const [quantityError, setQuantityError] = useState('');
   const offline = partyOffline || productOffline;
 
-  const selectedCustomer = parties.find(party => party.id === customerId) || null;
   const isAgentSale = selectedCustomer?.party_type === 'agent';
   const selectedProductList = useMemo(
     () => Object.values(selectedProducts).filter(product => (quantities[String(product.id)] || 0) > 0),
     [quantities, selectedProducts],
   );
-  const defaultPiecePrice = useCallback(
-    (product: Product) => Number(isAgentSale ? product.agent_selling_price : product.selling_price),
-    [isAgentSale],
-  );
-  const piecePrice = useCallback(
+  const editablePiecePrice = useCallback(
     (product: Product) => {
       const custom = customPrices[String(product.id)];
-      return custom !== undefined ? Number(custom) : defaultPiecePrice(product);
+      return custom !== undefined ? Number(custom) : Number(product.selling_price);
     },
-    [customPrices, defaultPiecePrice],
+    [customPrices],
+  );
+  const basePiecePrice = useCallback(
+    (product: Product) => {
+      const enteredPrice = editablePiecePrice(product);
+      return Number.isFinite(enteredPrice) ? Number(enteredPrice.toFixed(2)) : enteredPrice;
+    },
+    [editablePiecePrice],
+  );
+  const salePiecePrice = useCallback(
+    (product: Product) => {
+      const basePrice = basePiecePrice(product);
+      return isAgentSale ? agentSellingPrice(basePrice) : basePrice;
+    },
+    [basePiecePrice, isAgentSale],
   );
   const packPrice = useCallback(
-    (product: Product) => piecePrice(product) * Number(product.pieces_per_unit || 1),
-    [piecePrice],
+    (product: Product) => salePiecePrice(product) * Number(product.pieces_per_unit || 1),
+    [salePiecePrice],
   );
   const total = useMemo(
     () => selectedProductList.reduce(
@@ -82,6 +102,7 @@ export default function SaleScreen() {
     [quantities, selectedProductList],
   );
   const totalPages = Math.max(1, Math.ceil(productCount / PRODUCT_PAGE_SIZE));
+  const customerTotalPages = Math.max(1, Math.ceil(partyCount / CUSTOMER_PAGE_SIZE));
 
   const loadProducts = useCallback(async (query: string, page: number) => {
     setProductLoading(true);
@@ -103,28 +124,71 @@ export default function SaleScreen() {
     }
   }, []);
 
+  const loadCustomers = useCallback(async (query: string, type: 'all' | 'trader' | 'agent', page: number) => {
+    const request = ++customerRequest.current;
+    setPartyLoading(true);
+    try {
+      const params = new URLSearchParams({
+        page_size: String(CUSTOMER_PAGE_SIZE),
+        page: String(page),
+        common: '1',
+        customer_only: '1',
+      });
+      if (query.trim()) params.set('search', query.trim());
+      if (type !== 'all') params.set('party_type', type);
+      const result = await cachedGet<Paginated<Party>>(`/parties/?${params.toString()}`);
+      if (request !== customerRequest.current) return [];
+      setParties(result.data.results);
+      setPartyCount(result.data.count);
+      setPartyOffline(result.offline);
+      setSelectedCustomer(current => current
+        ? result.data.results.find(party => party.id === current.id) || current
+        : current);
+      return result.data.results;
+    } catch (nextError) {
+      if (request === customerRequest.current) setError(errorMessage(nextError));
+      return [];
+    } finally {
+      if (request === customerRequest.current) setPartyLoading(false);
+    }
+  }, []);
+
   const load = useCallback(async () => {
     try {
       setError('');
-      const [partyResult, draft] = await Promise.all([
-        cachedGet<Paginated<Party>>('/parties/?page_size=100'),
+      const [initialCustomers, draft] = await Promise.all([
+        loadCustomers('', 'all', 1),
         getLocalValue<Draft>('sale-draft'),
       ]);
-      const saleCustomers = partyResult.data.results.filter(party => party.party_type !== 'factory');
-      setParties(saleCustomers);
-      setPartyOffline(partyResult.offline);
       if (draft) {
-        setCustomerId(draft.customerId && saleCustomers.some(party => party.id === draft.customerId) ? draft.customerId : null);
         setQuantities(draft.quantities || {});
         setSelectedProducts(Object.fromEntries((draft.selectedProducts || []).map(product => [String(product.id), product])));
         setCustomPrices(draft.customPrices || {});
         setAmountPaid(draft.amountPaid);
         setNote(draft.note);
       }
-      if (requestedCustomerId) {
-        const requested = Number(requestedCustomerId);
-        if (saleCustomers.some(party => party.id === requested)) setCustomerId(requested);
+      const requested = requestedCustomerId ? Number(requestedCustomerId) : null;
+      const restoredId = requested || draft?.customerId || null;
+      let restoredCustomer = restoredId
+        ? initialCustomers.find(party => party.id === restoredId)
+          || (draft?.selectedCustomer?.id === restoredId ? draft.selectedCustomer : null)
+        : null;
+      if (restoredId && !restoredCustomer) {
+        try {
+          const result = await cachedGet<Party>(`/parties/${restoredId}/`);
+          restoredCustomer = result.data;
+          if (result.offline) setPartyOffline(true);
+        } catch {
+          restoredCustomer = null;
+        }
       }
+      setSelectedCustomer(restoredCustomer);
+      // Walk-in mode is an explicit per-sale choice and must always start off.
+      // Older saved drafts may contain isWalkIn=true, so do not restore it.
+      setIsWalkIn(false);
+      setCustomerQuery('');
+      setCustomerType('all');
+      setCustomerPage(1);
       setProductQuery('');
       setProductPage(1);
       await loadProducts('', 1);
@@ -133,7 +197,7 @@ export default function SaleScreen() {
     } finally {
       setLoading(false);
     }
-  }, [loadProducts, requestedCustomerId]);
+  }, [loadCustomers, loadProducts, requestedCustomerId]);
 
   useFocusEffect(useCallback(() => { load(); }, [load]));
 
@@ -144,9 +208,17 @@ export default function SaleScreen() {
   }, [loading, loadProducts, productPage, productQuery]);
 
   useEffect(() => {
+    if (loading) return undefined;
+    const timer = setTimeout(() => loadCustomers(customerQuery, customerType, customerPage), 300);
+    return () => clearTimeout(timer);
+  }, [customerPage, customerQuery, customerType, loadCustomers, loading]);
+
+  useEffect(() => {
     if (!loading) {
       setLocalValue('sale-draft', {
-        customerId,
+        customerId: selectedCustomer?.id || null,
+        selectedCustomer,
+        isWalkIn,
         quantities,
         selectedProducts: selectedProductList,
         customPrices,
@@ -154,11 +226,11 @@ export default function SaleScreen() {
         note,
       });
     }
-  }, [amountPaid, customerId, customPrices, loading, note, quantities, selectedProductList]);
+  }, [amountPaid, customPrices, isWalkIn, loading, note, quantities, selectedCustomer, selectedProductList]);
 
   useEffect(() => {
-    if (customerId === null) setAmountPaid(total.toFixed(2));
-  }, [customerId, total]);
+    if (isWalkIn) setAmountPaid(total.toFixed(2));
+  }, [isWalkIn, total]);
 
   const setProductQuantity = (product: Product, requestedQuantity: number) => {
     const key = String(product.id);
@@ -217,8 +289,9 @@ export default function SaleScreen() {
   };
 
   const submit = async () => {
+    if (!isWalkIn && !selectedCustomer) return setError('Select a customer or turn on Walk-in.');
     if (!selectedProductList.length) return setError('Select at least one product.');
-    if (selectedProductList.some(product => !Number.isFinite(piecePrice(product)) || piecePrice(product) < 0)) return setError('Enter a valid selling price for every selected product.');
+    if (selectedProductList.some(product => !Number.isFinite(basePiecePrice(product)) || basePiecePrice(product) < 0)) return setError('Enter a valid selling price for every selected product.');
     if (offline) return setError('Reconnect to the internet before posting this financial transaction. Your draft is saved.');
     setBusy(true);
     setError('');
@@ -226,20 +299,23 @@ export default function SaleScreen() {
       await apiFetch('/sales/', {
         method: 'POST',
         body: JSON.stringify({
-          customer_id: customerId,
+          customer_id: isWalkIn ? null : selectedCustomer?.id ?? null,
           idempotency_key: createUuid(),
           amount_paid: Number(amountPaid || 0).toFixed(2),
           note,
           sale_items: selectedProductList.map(product => ({
             product_id: product.id,
             quantity: quantities[String(product.id)],
-            unit_price: piecePrice(product).toFixed(2),
+            // Send the editable base; the API applies the Agent discount and
+            // stores the final charged per-piece amount in the sale snapshot.
+            unit_price: basePiecePrice(product).toFixed(2),
           })),
         }),
       });
       await removeLocalValue('sale-draft');
       setPreviewVisible(false);
-      setCustomerId(null);
+      setSelectedCustomer(null);
+      setIsWalkIn(false);
       setQuantities({});
       setSelectedProducts({});
       setCustomPrices({});
@@ -258,6 +334,7 @@ export default function SaleScreen() {
   if (loading) return <Screen scroll={false} safeTop><Loading /></Screen>;
   const balance = total - Number(amountPaid || 0);
   const accountBalanceAfter = Number(selectedCustomer?.current_balance || 0) + balance;
+  const previousOutstanding = Number(selectedCustomer?.current_balance || 0);
   return (
     <Screen safeTop>
       <Title eyebrow="Point of sale" subtitle="Choose a customer, sell in packs and confirm payment">New Sale</Title>
@@ -271,10 +348,75 @@ export default function SaleScreen() {
       {offline ? <Message text="Offline mode: prepare the sale now; reconnect before saving. Your draft stays on this device." tone="warning" /> : null}
       {error ? <Message text={error} tone="error" /> : null}
 
-      <SectionHeader title="1. Customer" subtitle="Walk-in sales must be paid in full" />
-      <View style={styles.chips}>
-        <Choice selected={customerId === null} label="Walk-in" icon="walk-outline" onPress={() => { setCustomerId(null); setCustomPrices({}); }} />
-        {parties.map(party => <Choice key={party.id} selected={customerId === party.id} label={party.name} badge={party.party_type === 'agent' ? 'Agent' : 'Trader'} icon={party.party_type === 'agent' ? 'people-outline' : 'person-outline'} onPress={() => { setCustomerId(party.id); setCustomPrices({}); }} />)}
+      <SectionHeader title="1. Customer" subtitle={isWalkIn ? 'Walk-in sales must be paid in full' : 'Search by customer name or phone'} />
+      <View style={styles.customerPicker}>
+        {!isWalkIn ? (
+          <SearchField
+            value={customerQuery}
+            onChangeText={value => { setCustomerQuery(value); setCustomerPage(1); }}
+            placeholder="Search customers by name or phone"
+            onSubmitEditing={() => loadCustomers(customerQuery, customerType, 1)}
+          />
+        ) : null}
+        <View style={styles.walkInToggle}>
+          <View style={styles.customerCopy}>
+            <Text style={styles.customerName}>Walk-in sale</Text>
+            <Text style={styles.small}>No customer account</Text>
+          </View>
+          <Switch
+            accessibilityLabel={t('Walk-in sale')}
+            accessibilityRole="switch"
+            value={isWalkIn}
+            onValueChange={enabled => {
+              setIsWalkIn(enabled);
+              if (enabled) {
+                setSelectedCustomer(null);
+                setCustomPrices({});
+              }
+            }}
+            trackColor={{ false: colors.borderStrong, true: colors.primary }}
+            thumbColor={colors.surface}
+          />
+        </View>
+        {!isWalkIn ? (
+          <>
+            <View style={styles.customerTypeFilters}>
+              <Choice selected={customerType === 'all'} label="All" icon="people-outline" onPress={() => { setCustomerType('all'); setCustomerPage(1); }} />
+              <Choice selected={customerType === 'trader'} label="Trader" icon="person-outline" onPress={() => { setCustomerType('trader'); setCustomerPage(1); }} />
+              <Choice selected={customerType === 'agent'} label="Agent" icon="people-outline" onPress={() => { setCustomerType('agent'); setCustomerPage(1); }} />
+            </View>
+            {partyLoading ? <Card><Loading /></Card> : parties.length ? (
+              <View style={styles.customerResults}>
+                {parties.map(party => (
+                  <Pressable
+                    key={party.id}
+                    accessibilityRole="button"
+                    accessibilityLabel={`${party.name}, ${party.phone || party.party_type}`}
+                    onPress={() => { setSelectedCustomer(party); setIsWalkIn(false); setCustomPrices({}); }}
+                    style={({ pressed }) => [styles.customerResult, selectedCustomer?.id === party.id && styles.customerResultSelected, pressed && styles.pressed]}
+                  >
+                    <View style={styles.customerResultCopy}>
+                      <Text style={styles.customerName}>{party.name}</Text>
+                      <Text style={styles.small}>{party.phone || party.company || 'No phone number'}</Text>
+                    </View>
+                    <Badge label={party.party_type === 'agent' ? 'Agent' : 'Trader'} tone={party.party_type === 'agent' ? 'success' : 'neutral'} />
+                  </Pressable>
+                ))}
+              </View>
+            ) : <Message text={customerQuery ? 'No customers match this search.' : 'No traders or agents are available.'} />}
+            {partyCount > CUSTOMER_PAGE_SIZE ? (
+              <View style={styles.customerPagination}>
+                <Pressable disabled={customerPage <= 1 || partyLoading} onPress={() => setCustomerPage(page => Math.max(1, page - 1))} style={({ pressed }) => [styles.pageButton, (customerPage <= 1 || partyLoading) && styles.pageDisabled, pressed && styles.pressed]}>
+                  <Icon name="chevron-back" size={18} color={colors.primary} /><Text style={styles.pageButtonText}>Previous</Text>
+                </Pressable>
+                <View style={styles.pageStatus}><Text style={styles.pageNumber}>Page {customerPage} of {customerTotalPages}</Text><Text style={styles.pageCount}>{partyCount.toLocaleString()} customers</Text></View>
+                <Pressable disabled={customerPage >= customerTotalPages || partyLoading} onPress={() => setCustomerPage(page => Math.min(customerTotalPages, page + 1))} style={({ pressed }) => [styles.pageButton, (customerPage >= customerTotalPages || partyLoading) && styles.pageDisabled, pressed && styles.pressed]}>
+                  <Text style={styles.pageButtonText}>Next</Text><Icon name="chevron-forward" size={18} color={colors.primary} />
+                </Pressable>
+              </View>
+            ) : null}
+          </>
+        ) : null}
       </View>
       {selectedCustomer ? (
         <Card style={styles.selectedCustomer}>
@@ -283,7 +425,7 @@ export default function SaleScreen() {
           <Badge label={selectedCustomer.balance_label.toUpperCase()} tone={selectedCustomer.balance_color === 'red' ? 'danger' : selectedCustomer.balance_color === 'green' ? 'success' : 'neutral'} />
         </Card>
       ) : null}
-      {isAgentSale ? <Message text="Agent prices default to 1.5% below standard. You can negotiate and override each selected product below." tone="success" /> : selectedCustomer ? <Message text="The standard price is prefilled. Edit any selected product's price for this sale only." /> : null}
+      {isAgentSale ? <Message text="Agent selling prices are 1.875% below the editable price shown for each selected product." tone="success" /> : selectedCustomer ? <Message text="The standard price is prefilled. Edit any selected product's price for this sale only." /> : null}
 
       <SectionHeader title="2. Products" subtitle={`${selectedUnitCount} unit${selectedUnitCount === 1 ? '' : 's'} across ${selectedProductList.length} product${selectedProductList.length === 1 ? '' : 's'}`} />
       <SearchField
@@ -307,10 +449,9 @@ export default function SaleScreen() {
                 <Text style={styles.small}>{product.current_quantity} units available</Text>
                 <View style={styles.packRow}>
                   <Text style={styles.packBadge}>×{piecesPerUnit} pcs / unit</Text>
-                  <Text style={styles.small}><Money value={piecePrice(product)} size="small" /> per piece</Text>
+                  <Text style={styles.small}><Money value={salePiecePrice(product)} size="small" /> selling price per piece</Text>
                 </View>
                 <Text style={styles.packTotal}>{packPrice(product).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ETB per unit</Text>
-                {isAgentSale ? <Text style={styles.standardPrice}>{Number(product.selling_price).toFixed(2)} ETB standard price / piece</Text> : null}
               </View>
             </View>
             <View style={styles.quantityRow}>
@@ -329,15 +470,14 @@ export default function SaleScreen() {
             </View>
             {selected ? (
               <View style={styles.priceEditor}>
-                <View style={styles.priceEditorCopy}>
-                  <Text style={styles.priceEditorTitle}>Selling price for this sale</Text>
-                  <Text style={styles.priceEditorHint}>Default: {defaultPiecePrice(product).toFixed(2)} ETB / piece · this override applies only to this sale</Text>
-                </View>
                 <View style={styles.priceInputRow}>
-                  <View style={styles.priceInput}><Input label="Actual Price / Piece" icon="pricetag-outline" value={overridden ? customPrices[String(product.id)] : defaultPiecePrice(product).toFixed(2)} onChangeText={value => setCustomPrices(current => ({ ...current, [String(product.id)]: value }))} keyboardType="decimal-pad" /></View>
+                  <View style={styles.priceInput}><Input label="Actual Price / Piece" icon="pricetag-outline" value={overridden ? customPrices[String(product.id)] : Number(product.selling_price).toFixed(2)} onChangeText={value => setCustomPrices(current => ({ ...current, [String(product.id)]: value }))} keyboardType="decimal-pad" /></View>
                   {overridden ? <Button title="Reset" compact variant="ghost" onPress={() => setCustomPrices(current => { const next = { ...current }; delete next[String(product.id)]; return next; })} /> : null}
                 </View>
-                {overridden ? <View style={styles.overrideBadge}><Icon name="checkmark-circle-outline" size={16} color={colors.primary} /><Text style={styles.overrideText}>Custom price will be recorded on this invoice only.</Text></View> : null}
+                <View style={styles.priceResult}>
+                  <Text style={styles.small}>Selling price / piece</Text>
+                  <Money value={salePiecePrice(product)} size="small" color={colors.success} />
+                </View>
               </View>
             ) : null}
           </Card>
@@ -359,8 +499,8 @@ export default function SaleScreen() {
           <View><Text style={styles.totalLabel}>Sale Total</Text><Text style={styles.small}>{selectedUnitCount} unit{selectedUnitCount === 1 ? '' : 's'} · {selectedProductList.length} lines</Text></View>
           <Money value={total} size="large" />
         </View>
-        <Input label="Amount Paid" icon="wallet-outline" value={amountPaid} onChangeText={setAmountPaid} keyboardType="decimal-pad" editable={customerId !== null} hint={customerId === null ? 'Walk-in sales are automatically paid in full.' : undefined} />
-        {customerId !== null ? (
+        <Input label="Amount Paid" icon="wallet-outline" value={amountPaid} onChangeText={setAmountPaid} keyboardType="decimal-pad" editable={!isWalkIn} hint={isWalkIn ? 'Walk-in sales are automatically paid in full.' : undefined} />
+        {selectedCustomer ? (
           <View style={[styles.balancePreview, { backgroundColor: balance > 0 ? colors.dangerSoft : balance < 0 ? colors.successSoft : colors.primarySoft }]}>
             <Icon name={balance > 0 ? 'arrow-down-circle-outline' : balance < 0 ? 'arrow-up-circle-outline' : 'checkmark-circle-outline'} size={24} color={balance > 0 ? colors.danger : balance < 0 ? colors.success : colors.primary} />
             <View style={styles.customerCopy}><Text style={[styles.balanceState, { color: balance > 0 ? colors.danger : balance < 0 ? colors.success : colors.primary }]}>{balance > 0 ? 'Owes Me' : balance < 0 ? 'I Owe' : 'Settled'}</Text><Money value={Math.abs(balance)} color={balance > 0 ? colors.danger : balance < 0 ? colors.success : colors.primary} size="small" /></View>
@@ -379,10 +519,12 @@ export default function SaleScreen() {
         customer={selectedCustomer}
         products={selectedProductList}
         quantities={quantities}
-        piecePrice={piecePrice}
+        piecePrice={salePiecePrice}
         total={total}
         amountPaid={Number(amountPaid || 0)}
         accountBalanceAfter={accountBalanceAfter}
+        previousOutstanding={previousOutstanding}
+        isWalkIn={isWalkIn}
         note={note}
         busy={busy}
         onClose={() => setPreviewVisible(false)}
@@ -434,7 +576,7 @@ function QuantityEditorModal({ product, value, error, onChange, onCancel, onAppl
   );
 }
 
-function InvoicePreview({ visible, storeName, currency, customer, products, quantities, piecePrice, total, amountPaid, accountBalanceAfter, note, busy, onClose, onConfirm }: {
+function InvoicePreview({ visible, storeName, currency, customer, products, quantities, piecePrice, total, amountPaid, accountBalanceAfter, previousOutstanding, isWalkIn, note, busy, onClose, onConfirm }: {
   visible: boolean;
   storeName: string;
   currency: string;
@@ -445,6 +587,8 @@ function InvoicePreview({ visible, storeName, currency, customer, products, quan
   total: number;
   amountPaid: number;
   accountBalanceAfter: number;
+  previousOutstanding: number;
+  isWalkIn: boolean;
   note: string;
   busy: boolean;
   onClose: () => void;
@@ -452,34 +596,52 @@ function InvoicePreview({ visible, storeName, currency, customer, products, quan
 }) {
   const insets = useSafeAreaInsets();
   const { t } = useI18n();
+  const thisSaleOutstanding = total - amountPaid;
+  const totalOutstanding = customer ? accountBalanceAfter : isWalkIn ? 0 : thisSaleOutstanding;
   return (
     <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
       <View style={styles.modalBackdrop}>
         <View style={[styles.invoiceSheet, { paddingBottom: Math.max(insets.bottom, spacing.md) }]}>
           <View style={styles.invoiceHeader}>
-            <View><Text style={styles.invoiceEyebrow}>INVOICE PREVIEW</Text><Text style={styles.invoiceStore}>{storeName}</Text><Text style={styles.invoiceMeta}>{customer?.name || 'Walk-in customer'} · {new Date().toLocaleString()}</Text></View>
+            <View><Text style={styles.invoiceEyebrow}>INVOICE PREVIEW</Text><Text style={styles.invoiceStore}>{storeName}</Text><Text style={styles.invoiceMeta}>{customer?.name || (isWalkIn ? 'Walk-in customer' : 'No customer selected')} · {new Date().toLocaleString()}</Text></View>
             <Pressable accessibilityLabel={t('Close invoice preview')} onPress={onClose} style={styles.closeButton}><Icon name="close" size={22} color={colors.text} /></Pressable>
           </View>
           <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.invoiceContent}>
             <Message text="This is a preview. Stock and balances change only after you confirm the sale." />
-            {products.map(product => {
-              const units = quantities[String(product.id)] || 0;
-              const pieces = Number(product.pieces_per_unit || 1);
-              const lineTotal = units * pieces * piecePrice(product);
-              return (
-                <View key={product.id} style={styles.invoiceLine}>
-                  <View style={styles.invoiceLineTop}><Text style={styles.invoiceProduct}>{product.name}</Text><Money value={lineTotal} currency={currency} size="small" /></View>
-                  <Text style={styles.invoiceFactory}>Factory {product.factory_name}</Text>
-                  <Text style={styles.invoiceCalculation}>{units} unit{units === 1 ? '' : 's'} × {pieces} pieces × {piecePrice(product).toFixed(2)} {currency} / piece</Text>
-                  <Text style={styles.invoicePieces}>{(units * pieces).toLocaleString()} individual pieces</Text>
+            <ScrollView horizontal nestedScrollEnabled showsHorizontalScrollIndicator>
+              <View style={styles.invoiceTable}>
+                <View style={styles.invoiceTableHeader}>
+                  <Text style={[styles.invoiceTableHeading, styles.invoiceItemCell]}>Item</Text>
+                  <Text style={[styles.invoiceTableHeading, styles.invoicePriceCell]}>Per piece price</Text>
+                  <Text style={[styles.invoiceTableHeading, styles.invoicePiecesCell]}>Pieces per unit</Text>
+                  <Text style={[styles.invoiceTableHeading, styles.invoiceUnitsCell]}>Units bought</Text>
+                  <Text style={[styles.invoiceTableHeading, styles.invoiceTotalCell]}>Total price</Text>
                 </View>
-              );
-            })}
+                {products.map(product => {
+                  const units = quantities[String(product.id)] || 0;
+                  const pieces = Number(product.pieces_per_unit || 1);
+                  const lineTotal = units * pieces * piecePrice(product);
+                  return (
+                    <View key={product.id} style={styles.invoiceTableRow}>
+                      <View style={[styles.invoiceTableItem, styles.invoiceItemCell]}>
+                        <Text style={styles.invoiceProduct}>{product.name}</Text>
+                        <Text style={styles.invoiceFactory}>Factory {product.factory_name}</Text>
+                      </View>
+                      <Text style={[styles.invoiceTableValue, styles.invoicePriceCell]}>{piecePrice(product).toFixed(2)} {currency}</Text>
+                      <Text style={[styles.invoiceTableValue, styles.invoicePiecesCell]}>{pieces.toLocaleString()}</Text>
+                      <Text style={[styles.invoiceTableValue, styles.invoiceUnitsCell]}>{units.toLocaleString()}</Text>
+                      <Text style={[styles.invoiceTableValue, styles.invoiceTotalCell]}>{lineTotal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {currency}</Text>
+                    </View>
+                  );
+                })}
+              </View>
+            </ScrollView>
             <View style={styles.invoiceSummary}>
               <SummaryRow label="Invoice total" value={total} currency={currency} strong />
               <SummaryRow label="Amount paid" value={amountPaid} currency={currency} />
-              <SummaryRow label="This sale outstanding" value={Math.abs(total - amountPaid)} currency={currency} tone={total - amountPaid > 0 ? 'danger' : total - amountPaid < 0 ? 'success' : 'normal'} />
-              {customer ? <SummaryRow label={accountBalanceAfter >= 0 ? 'Total outstanding' : 'Total customer credit'} value={Math.abs(accountBalanceAfter)} currency={currency} strong tone={accountBalanceAfter > 0 ? 'danger' : accountBalanceAfter < 0 ? 'success' : 'normal'} /> : null}
+              <SummaryRow label="This sale outstanding" value={Math.abs(thisSaleOutstanding)} currency={currency} tone={thisSaleOutstanding > 0 ? 'danger' : thisSaleOutstanding < 0 ? 'success' : 'normal'} />
+              <SummaryRow label="Previous outstanding" value={previousOutstanding} currency={currency} tone={previousOutstanding > 0 ? 'danger' : previousOutstanding < 0 ? 'success' : 'normal'} />
+              <SummaryRow label={totalOutstanding < 0 ? 'Total customer credit' : 'Total outstanding'} value={Math.abs(totalOutstanding)} currency={currency} strong tone={totalOutstanding > 0 ? 'danger' : totalOutstanding < 0 ? 'success' : 'normal'} />
             </View>
             {note ? <View style={styles.invoiceNote}><Text style={styles.invoiceNoteLabel}>NOTE</Text><Text style={styles.invoiceNoteText}>{note}</Text></View> : null}
           </ScrollView>
@@ -526,7 +688,14 @@ const styles = StyleSheet.create({
   stepNumberActive: { color: colors.onPrimary },
   stepLabel: { color: colors.muted, fontSize: 10, fontWeight: '800' },
   stepLabelActive: { color: colors.primary },
-  chips: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
+  customerPicker: { gap: spacing.sm },
+  walkInToggle: { flexDirection: 'row', alignItems: 'center', gap: spacing.md, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, backgroundColor: colors.surface, paddingHorizontal: spacing.md, paddingVertical: spacing.sm },
+  customerTypeFilters: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
+  customerResults: { gap: spacing.xs },
+  customerResult: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, backgroundColor: colors.surface, paddingHorizontal: spacing.md, paddingVertical: spacing.sm },
+  customerResultSelected: { borderColor: colors.primary, backgroundColor: colors.primarySoft },
+  customerResultCopy: { flex: 1, minWidth: 0 },
+  customerPagination: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.sm, marginTop: spacing.xs },
   chip: { maxWidth: '100%', minHeight: 42, flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.borderStrong, borderRadius: radius.pill, paddingHorizontal: 12, paddingVertical: 8 },
   chipSelected: { backgroundColor: colors.primaryButton, borderColor: colors.primaryButton },
   chipText: { maxWidth: 160, color: colors.text, fontWeight: '800', fontSize: 13 },
@@ -549,7 +718,6 @@ const styles = StyleSheet.create({
   packRow: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: spacing.sm, marginTop: 3 },
   packBadge: { color: colors.primary, backgroundColor: colors.primarySoft, borderRadius: radius.pill, paddingHorizontal: 8, paddingVertical: 3, fontSize: 10, fontWeight: '900' },
   packTotal: { color: colors.text, fontSize: 11, fontWeight: '900', marginTop: 2 },
-  standardPrice: { color: colors.muted, fontSize: 10, textDecorationLine: 'line-through' },
   small: { color: colors.muted, fontSize: 12, lineHeight: 17, marginVertical: 2 },
   quantityRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.md, marginTop: spacing.mdSm, paddingTop: spacing.mdSm, borderTopWidth: 1, borderTopColor: colors.border },
   quantityTitle: { color: colors.text, fontSize: 12, fontWeight: '900' },
@@ -563,13 +731,9 @@ const styles = StyleSheet.create({
   qty: { color: colors.text, fontWeight: '900', fontSize: 16 },
   qtyLabel: { color: colors.primary, fontSize: 8, fontWeight: '900' },
   priceEditor: { gap: spacing.sm, marginTop: spacing.mdSm, paddingTop: spacing.mdSm, borderTopWidth: 1, borderTopColor: colors.primaryBorder },
-  priceEditorCopy: { gap: 2 },
-  priceEditorTitle: { color: colors.text, fontSize: 12, fontWeight: '900' },
-  priceEditorHint: { color: colors.muted, fontSize: 10, lineHeight: 15 },
   priceInputRow: { flexDirection: 'row', alignItems: 'flex-end', gap: spacing.sm },
   priceInput: { flex: 1 },
-  overrideBadge: { flexDirection: 'row', alignItems: 'center', gap: 5, borderRadius: radius.sm, backgroundColor: colors.primarySoft, paddingHorizontal: spacing.sm, paddingVertical: 6 },
-  overrideText: { flex: 1, color: colors.primary, fontSize: 10, fontWeight: '800' },
+  priceResult: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', borderRadius: radius.sm, backgroundColor: colors.successSoft, paddingHorizontal: spacing.mdSm, paddingVertical: spacing.sm },
   pagination: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.sm },
   pageButton: { minHeight: 42, minWidth: 96, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 4, borderRadius: radius.md, backgroundColor: colors.primarySoft, borderWidth: 1, borderColor: colors.primaryBorder, paddingHorizontal: spacing.sm },
   pageButtonText: { color: colors.primary, fontWeight: '900', fontSize: 12 },
@@ -592,12 +756,19 @@ const styles = StyleSheet.create({
   invoiceMeta: { color: colors.muted, fontSize: 11, marginTop: 4 },
   closeButton: { width: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.surfaceMuted },
   invoiceContent: { padding: spacing.md, gap: spacing.md },
-  invoiceLine: { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.mdSm },
-  invoiceLineTop: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.sm },
-  invoiceProduct: { flex: 1, color: colors.text, fontSize: 14, fontWeight: '900' },
-  invoiceFactory: { color: colors.primary, fontSize: 10, fontWeight: '900', marginTop: 4 },
-  invoiceCalculation: { color: colors.textSoft, fontSize: 11, lineHeight: 17, marginTop: 6 },
-  invoicePieces: { color: colors.primary, fontSize: 10, fontWeight: '800', marginTop: 2 },
+  invoiceTable: { width: 650, overflow: 'hidden', borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, backgroundColor: colors.surface },
+  invoiceTableHeader: { flexDirection: 'row', alignItems: 'stretch', backgroundColor: colors.primarySoft, borderBottomWidth: 1, borderBottomColor: colors.border },
+  invoiceTableHeading: { color: colors.primary, fontSize: 10, lineHeight: 14, fontWeight: '900', textAlign: 'center', textAlignVertical: 'center', paddingHorizontal: 5, paddingVertical: spacing.sm },
+  invoiceTableRow: { flexDirection: 'row', alignItems: 'stretch', minHeight: 58, borderBottomWidth: 1, borderBottomColor: colors.border },
+  invoiceTableItem: { justifyContent: 'center', paddingVertical: spacing.sm },
+  invoiceItemCell: { width: 184, paddingHorizontal: spacing.sm },
+  invoicePriceCell: { width: 112 },
+  invoicePiecesCell: { width: 112 },
+  invoiceUnitsCell: { width: 104 },
+  invoiceTotalCell: { width: 138 },
+  invoiceProduct: { color: colors.text, fontSize: 12, lineHeight: 16, fontWeight: '900' },
+  invoiceFactory: { color: colors.primary, fontSize: 9, fontWeight: '800', marginTop: 3 },
+  invoiceTableValue: { color: colors.text, fontSize: 11, lineHeight: 15, fontWeight: '800', textAlign: 'center', textAlignVertical: 'center', paddingHorizontal: 5, paddingVertical: spacing.sm },
   invoiceSummary: { backgroundColor: colors.primarySoft, borderRadius: radius.md, padding: spacing.mdSm, gap: 8 },
   summaryRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.md },
   summaryLabel: { color: colors.textSoft, fontSize: 12 },

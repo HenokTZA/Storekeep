@@ -217,8 +217,30 @@ class PartyViewSet(StoreViewSetMixin, viewsets.ModelViewSet):
     ordering_fields = ("name", "current_balance", "created_at")
     filterset_fields = ("party_type",)
 
+    def filter_queryset(self, queryset):
+        search = self.request.query_params.get("search", "").strip()
+        if search and self.request.query_params.get("common") in {"1", "true"}:
+            # Customer search should follow the name as it is typed, while still
+            # allowing a phone number to be searched from any part of the number.
+            queryset = queryset.filter(
+                Q(name__istartswith=search)
+                | Q(company__istartswith=search)
+                | Q(phone__icontains=search)
+            )
+        return super().filter_queryset(queryset)
+
     def get_queryset(self):
-        return Party.objects.filter(store=self.get_store(), is_active=True)
+        queryset = Party.objects.filter(store=self.get_store(), is_active=True)
+        if self.request.query_params.get("customer_only") in {"1", "true"}:
+            queryset = queryset.filter(party_type__in=(Party.PartyType.TRADER, Party.PartyType.AGENT))
+        if self.request.query_params.get("common") in {"1", "true"}:
+            queryset = queryset.annotate(
+                completed_sale_count=Count(
+                    "sales",
+                    filter=Q(sales__status=Sale.Status.COMPLETED),
+                )
+            ).order_by("-completed_sale_count", "name", "id")
+        return queryset
 
     def perform_create(self, serializer):
         self.require_roles(*SALES_ROLES)

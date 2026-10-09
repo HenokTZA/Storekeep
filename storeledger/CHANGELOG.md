@@ -1,5 +1,11 @@
 # Changelog
 
+## 2026-10-08 — Agent sale price calculation
+
+- Set the fixed Agent discount to 1.875%.
+- Keep the editable Actual Price / Piece at the saved standard price until changed, then calculate the displayed and charged Agent selling price from that base.
+- Apply the same calculation and cent rounding in the mobile preview and backend; store the final charged price on the sale item.
+
 ## 2.0.0 — Complete Amharic and English localization
 
 - Localized all 33 mobile routes, tabs, menus, headings, cards, forms, placeholders, dialogs, validation messages, loading/offline states and accessibility labels.

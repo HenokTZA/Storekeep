@@ -113,8 +113,8 @@ Repeat for both customer types:
 13. Create a later sale for the same Trader and confirm its receipt shows both that sale's outstanding and the total balance immediately after that transaction, including the earlier outstanding amount.
 14. Record a payment larger than the balance and confirm it becomes green `I Owe`.
 15. Record the exact remaining amount on another customer and confirm `Settled`.
-16. Create an Agent sale for a one-piece Product priced at 100.00 ETB. Confirm the price initially shows 98.50 ETB.
-17. Override that Agent line to 97.00 ETB, post it, then confirm the receipt/transaction/report uses 97.00 ETB while the Product still shows a 100.00 ETB standard price.
+16. Create an Agent sale for a one-piece Product priced at 300.00 ETB. Confirm the editable Actual Price / Piece field shows 300.00 ETB and the uneditable Selling Price / Piece below it shows 294.38 ETB.
+17. Change that Agent line's editable price to 320.00 ETB. Confirm the uneditable sale price becomes 314.00 ETB; post it and verify the receipt/transaction/report uses 314.00 ETB while the Product still shows a 300.00 ETB standard price.
 18. Create a Trader sale and confirm its price initially shows the standard price. Override one selected line and verify the same transaction-only behavior.
 19. Repeat with a multi-piece pack and confirm the actual per-piece price is multiplied by pieces and units.
 20. Create a walk-in sale and confirm its initial price is the standard Product price. Override it with a discount, verify Amount Paid automatically follows the new total, and post it.

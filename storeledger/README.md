@@ -13,7 +13,7 @@ StoreLedger 2.0.0 is a distributor-focused test build for Android and responsive
 - The same product/shoe ID may exist at different factories and is tracked as separate stock
 - Factory filters throughout Stock plus factory snapshots on movements, invoices and reports
 - Walk-in, Trader and Agent sales, all retained in unified transaction history with View, Download and Share receipts
-- Agent prices default to 1.5% below standard; Trader and Agent prices can be overridden per sale line
+- Agent sale prices are 1.875% below the editable per-piece base price; Traders pay the entered price without this discount
 - Walk-in, Trader and Agent prices can be overridden per sale; negotiated prices never change the product's saved default price
 - Cost and gross-profit snapshots support accurate product sales/profit reports
 - Partial payments and automatic stock reduction

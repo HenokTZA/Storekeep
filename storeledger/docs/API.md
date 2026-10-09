@@ -54,11 +54,11 @@ List endpoints are paginated as `{count, next, previous, results}` and support `
 ## Pricing and dashboard rules
 
 - Every Product requires `factory`; the response includes `factory_name`. Product names are unique within one active Factory, so the same name/ID can exist under another Factory.
-- Product responses include both `selling_price` and calculated `agent_selling_price`.
+- Product responses include both the standard `selling_price` and `agent_selling_price`, calculated at 1.875% below standard.
 - `pieces_per_unit` defines the number of individual pieces in one inventory/sale unit. Product prices are per piece; `pack_selling_price` and `agent_pack_selling_price` expose the calculated whole-unit values.
 - Sale totals use `quantity × pieces_per_unit × unit_price`. Sale item `quantity` is the number of packs/units, `unit_price` is the price per piece, and the saved `pieces_per_unit` is an immutable historical snapshot.
 - Purchase totals use the corresponding `quantity × pieces_per_unit × unit_cost` formula while stock increases by the received unit quantity.
-- A Trader or walk-in sale defaults to `selling_price`; an Agent sale defaults to `agent_selling_price`, exactly 1.5% below the saved price. All three customer modes may submit a non-negative `unit_price` per item as a negotiated price for that sale only.
+- For every customer type, the editable sale price starts at the Product's standard `selling_price`. `unit_price` submitted on a sale line is that editable base price. For Agents, the API applies a 1.875% discount to the base price (standard or edited); Traders and walk-in customers pay the base price without the Agent discount. The saved `SaleItem.unit_price` is the final per-piece amount charged, rounded to cents, and does not change the Product price.
 - Walk-in Sales remain payment-in-full transactions. They appear in `/transactions/` with `party=null`, `party_type=walk_in`, the persisted Sale UUID and receipt actions, but never create a fabricated Party balance ledger.
 - Each posted Sale item snapshots `factory_name`, actual `unit_price`, `unit_cost`, `line_cost` and `gross_profit`; changing a Product later cannot rewrite the transaction.
 - `POST /purchases/` accepts only an active Factory as `supplier_id`, and every purchase item must belong to that same Factory.

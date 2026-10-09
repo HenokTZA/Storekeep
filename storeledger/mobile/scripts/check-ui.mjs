@@ -121,8 +121,12 @@ if (!saleSource.includes('ENTER UNITS / BAGS') || !saleSource.includes('Set Unit
 if (!saleSource.includes('quantityError') || !saleSource.includes('Enter') || !saleSource.includes('or less')) {
   errors.push('app/(tabs)/sale.tsx: direct quantity entry must explain an over-stock value inside the modal');
 }
-if (!saleSource.includes('unit_price: piecePrice(product).toFixed(2)') || !saleSource.includes('{selected ? (')) {
-  errors.push('app/(tabs)/sale.tsx: walk-in sales must expose and submit one-transaction price overrides');
+if (!saleSource.includes('unit_price: basePiecePrice(product).toFixed(2)') || !saleSource.includes('salePiecePrice(product)') || !saleSource.includes('Number(product.selling_price).toFixed(2)') || !saleSource.includes('{selected ? (')) {
+  errors.push('app/(tabs)/sale.tsx: sale lines must submit an editable base price and display the final selling price');
+}
+const pricingSource = fs.readFileSync(path.join(mobileRoot, 'src', 'lib', 'pricing.ts'), 'utf8');
+if (!pricingSource.includes('AGENT_PRICE_FACTOR_NUMERATOR = 157') || !pricingSource.includes('AGENT_PRICE_FACTOR_DENOMINATOR = 160')) {
+  errors.push('src/lib/pricing.ts: Agent price must apply the 1.875% discount with cent rounding');
 }
 if (!saleSource.includes('Total outstanding')) {
   errors.push('app/(tabs)/sale.tsx: invoice preview must show the total account outstanding');

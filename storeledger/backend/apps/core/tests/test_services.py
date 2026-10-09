@@ -91,7 +91,8 @@ class StoreServiceTests(TestCase):
 
     def test_agent_sale_defaults_to_discount_and_allows_negotiated_override(self):
         self.product.purchase_price = Decimal("20.00")
-        self.product.save(update_fields=["purchase_price", "updated_at"])
+        self.product.selling_price = Decimal("300.00")
+        self.product.save(update_fields=["purchase_price", "selling_price", "updated_at"])
         agent = Party.objects.create(
             store=self.store,
             party_type=Party.PartyType.AGENT,
@@ -102,28 +103,28 @@ class StoreServiceTests(TestCase):
             store=self.store,
             user=self.user,
             customer_id=agent.id,
-            amount_paid="98.50",
+            amount_paid="588.76",
             items=[{"product_id": self.product.id, "quantity": "2"}],
             idempotency_key=uuid.uuid4(),
         )
-        self.assertEqual(default_sale.items.get().unit_price, Decimal("49.25"))
-        self.assertEqual(default_sale.total, Decimal("98.50"))
+        self.assertEqual(default_sale.items.get().unit_price, Decimal("294.38"))
+        self.assertEqual(default_sale.total, Decimal("588.76"))
         self.assertEqual(default_sale.items.get().line_cost, Decimal("40.00"))
-        self.assertEqual(default_sale.items.get().gross_profit, Decimal("58.50"))
+        self.assertEqual(default_sale.items.get().gross_profit, Decimal("548.76"))
         negotiated_sale, _ = SaleService.create(
             store=self.store,
             user=self.user,
             customer_id=agent.id,
-            amount_paid="90.00",
-            items=[{"product_id": self.product.id, "quantity": "2", "unit_price": "45.00"}],
+            amount_paid="628.00",
+            items=[{"product_id": self.product.id, "quantity": "2", "unit_price": "320.00"}],
             idempotency_key=uuid.uuid4(),
         )
-        self.assertEqual(negotiated_sale.items.get().unit_price, Decimal("45.00"))
-        self.assertEqual(negotiated_sale.total, Decimal("90.00"))
+        self.assertEqual(negotiated_sale.items.get().unit_price, Decimal("314.00"))
+        self.assertEqual(negotiated_sale.total, Decimal("628.00"))
         self.assertEqual(negotiated_sale.items.get().line_cost, Decimal("40.00"))
-        self.assertEqual(negotiated_sale.items.get().gross_profit, Decimal("50.00"))
+        self.assertEqual(negotiated_sale.items.get().gross_profit, Decimal("588.00"))
         self.product.refresh_from_db()
-        self.assertEqual(self.product.selling_price, Decimal("50.00"))
+        self.assertEqual(self.product.selling_price, Decimal("300.00"))
 
     def test_walk_in_sale_allows_one_transaction_price_override(self):
         self.product.purchase_price = Decimal("20.00")

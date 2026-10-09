@@ -5,6 +5,7 @@ import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { Badge, Button, Card, Icon, Input, Loading, Message, Money, Screen, SectionHeader, Title } from '@/components/ui';
 import { FactoryDropdown } from '@/components/FactoryDropdown';
 import { apiFetch, errorMessage } from '@/lib/api';
+import { agentSellingPrice } from '@/lib/pricing';
 import { colors, radius, spacing } from '@/theme';
 import type { Paginated, Party, Product } from '@/types';
 
@@ -66,7 +67,7 @@ export default function ProductEditScreen() {
           <View style={styles.flex}><Input label="Purchase / Piece" icon="arrow-down-outline" value={data.purchase_price} onChangeText={value => update('purchase_price', value)} keyboardType="decimal-pad" /></View>
           <View style={styles.flex}><Input label="Selling / Piece" icon="arrow-up-outline" value={data.selling_price} onChangeText={value => update('selling_price', value)} keyboardType="decimal-pad" /></View>
         </View>
-        <View style={styles.agentPrice}><Text style={styles.agentLabel}>Default agent price (−1.5%)</Text><Money value={Number(data.selling_price || 0) * 0.985} color={colors.success} size="small" /></View>
+        <View style={styles.agentPrice}><Text style={styles.agentLabel}>Default agent price (−1.875%)</Text><Money value={agentSellingPrice(Number(data.selling_price || 0))} color={colors.success} size="small" /></View>
         <Input label="Low-stock Threshold" icon="warning-outline" value={data.minimum_stock_threshold} onChangeText={value => update('minimum_stock_threshold', value)} keyboardType="decimal-pad" />
         <Input label="Notes" icon="document-text-outline" value={data.notes} onChangeText={value => update('notes', value)} multiline />
       </Card>

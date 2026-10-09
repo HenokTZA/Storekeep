@@ -71,7 +71,7 @@ export default function NewProductScreen() {
           <View style={styles.flex}><Input label="Purchase / Piece" icon="arrow-down-outline" value={purchasePrice} onChangeText={setPurchasePrice} keyboardType="decimal-pad" /></View>
           <View style={styles.flex}><Input label="Selling / Piece" icon="arrow-up-outline" value={sellingPrice} onChangeText={setSellingPrice} keyboardType="decimal-pad" /></View>
         </View>
-        <Message text="Agent sales start at 1.5% below this price; the price can be negotiated for one sale." tone="success" />
+        <Message text="Agent sales are 1.875% below the entered price; you can edit the base price for one sale." tone="success" />
       </Card>
 
       <Card style={styles.formCard}>

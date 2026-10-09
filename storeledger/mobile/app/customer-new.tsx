@@ -53,7 +53,7 @@ export default function NewCustomerScreen() {
         <Input label="Notes (optional)" icon="document-text-outline" value={notes} onChangeText={setNotes} multiline placeholder="Add relevant notes" />
       </Card>
 
-      {type === 'agent' ? <Message text="Sales default to 1.5% below the standard price. You can override the price for an individual sale." tone="success" /> : null}
+      {type === 'agent' ? <Message text="Sales are 1.875% below the entered price. You can edit the base price for an individual sale." tone="success" /> : null}
       {type === 'factory' ? <Message text="Products with the same name can be stored separately when they belong to different factories." tone="success" /> : null}
       <Button title={busy ? 'Saving…' : `Save ${label}`} icon="checkmark-circle-outline" onPress={save} disabled={busy || !name.trim() || (type !== 'factory' && !phone.trim())} />
     </Screen>

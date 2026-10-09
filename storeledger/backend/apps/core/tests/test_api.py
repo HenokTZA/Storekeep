@@ -9,6 +9,7 @@ from rest_framework.test import APITestCase
 from rest_framework_simplejwt.tokens import RefreshToken
 
 from apps.core.models import InventoryBalance, Membership, Party, Product, SMSLog, Store, StoreSettings
+from apps.core.services import TransactionReceiptService
 
 
 class TenantIsolationApiTests(APITestCase):
@@ -49,7 +50,7 @@ class TenantIsolationApiTests(APITestCase):
         self.assertEqual(response.data["count"], 1)
         self.assertEqual(response.data["results"][0]["name"], "Mine")
         self.assertEqual(response.data["results"][0]["factory_name"], "FF")
-        self.assertEqual(response.data["results"][0]["agent_selling_price"], "9.85")
+        self.assertEqual(response.data["results"][0]["agent_selling_price"], "9.81")
         self.assertEqual(response.data["results"][0]["pieces_per_unit"], 1)
         self.assertEqual(response.data["results"][0]["pack_selling_price"], "10.00")
 
@@ -68,6 +69,62 @@ class TenantIsolationApiTests(APITestCase):
         self.assertEqual(len(first.data["results"]), 3)
         self.assertEqual(len(second.data["results"]), 1)
 
+    def test_sale_customer_picker_filters_common_traders_and_agents_in_pages(self):
+        import uuid
+
+        most_common = Party.objects.create(
+            store=self.store,
+            party_type=Party.PartyType.AGENT,
+            name="Agent Zulu",
+            phone="+251900000010",
+        )
+        for index in range(5):
+            Party.objects.create(
+                store=self.store,
+                party_type=Party.PartyType.AGENT,
+                name=f"Agent {index}",
+                phone=f"+25190000001{index + 1}",
+            )
+        Party.objects.create(
+            store=self.store,
+            party_type=Party.PartyType.TRADER,
+            name="Samuel Trader",
+            phone="+251900000099",
+        )
+        for _ in range(2):
+            response = self.client.post(
+                "/api/v1/sales/",
+                {
+                    "customer_id": most_common.id,
+                    "idempotency_key": str(uuid.uuid4()),
+                    "amount_paid": "9.81",
+                    "sale_items": [{"product_id": self.product.id, "quantity": "1.000"}],
+                },
+                format="json",
+            )
+            self.assertEqual(response.status_code, 201, response.data)
+
+        first_page = self.client.get(
+            "/api/v1/parties/?customer_only=1&common=1&party_type=agent&page_size=5&page=1"
+        )
+        second_page = self.client.get(
+            "/api/v1/parties/?customer_only=1&common=1&party_type=agent&page_size=5&page=2"
+        )
+        self.assertEqual(first_page.status_code, 200, first_page.data)
+        self.assertEqual(first_page.data["count"], 6)
+        self.assertEqual(len(first_page.data["results"]), 5)
+        self.assertEqual(first_page.data["results"][0]["id"], most_common.id)
+        self.assertEqual(len(second_page.data["results"]), 1)
+
+        name_search = self.client.get(
+            "/api/v1/parties/?customer_only=1&common=1&search=Agent%20Z&party_type=agent"
+        )
+        phone_search = self.client.get(
+            "/api/v1/parties/?customer_only=1&common=1&search=000099"
+        )
+        self.assertEqual([row["id"] for row in name_search.data["results"]], [most_common.id])
+        self.assertEqual(phone_search.data["results"][0]["name"], "Samuel Trader")
+
     def test_agent_sale_allows_one_transaction_price_override(self):
         import uuid
 
@@ -82,14 +139,14 @@ class TenantIsolationApiTests(APITestCase):
             {
                 "customer_id": agent.id,
                 "idempotency_key": str(uuid.uuid4()),
-                "amount_paid": "999.00",
+                "amount_paid": "980.27",
                 "sale_items": [{"product_id": self.product.id, "quantity": "1.000", "unit_price": "999.00"}],
             },
             format="json",
         )
         self.assertEqual(response.status_code, 201, response.data)
-        self.assertEqual(response.data["total"], "999.00")
-        self.assertEqual(response.data["items"][0]["unit_price"], "999.00")
+        self.assertEqual(response.data["total"], "980.27")
+        self.assertEqual(response.data["items"][0]["unit_price"], "980.27")
         self.assertEqual(response.data["items"][0]["factory_name"], "FF")
         self.product.refresh_from_db()
         self.assertEqual(self.product.selling_price, Decimal("10.00"))
@@ -208,7 +265,9 @@ class TenantIsolationApiTests(APITestCase):
             self.assertEqual(receipt_image.format, "PNG")
             self.assertEqual(receipt_image.info["Store"], "Allowed")
             self.assertEqual(receipt_image.info["Transaction Type"], "sale")
+            self.assertEqual(receipt_image.info["Line Item Columns"], "Item | Price / piece | Pieces / unit | Units bought | Total price")
             self.assertEqual(receipt_image.info["Transaction Outstanding"], "5.00")
+            self.assertEqual(receipt_image.info["Previous Outstanding"], "0.00")
             self.assertEqual(receipt_image.info["Account Balance After"], "5.00")
             self.assertEqual(receipt_image.info["Language"], "en")
         localized_receipt = self.client.get(f"/api/v1/sales/{first.data['id']}/receipt/?language=am")
@@ -239,6 +298,12 @@ class TenantIsolationApiTests(APITestCase):
         self.assertEqual(response.data["items"][0]["total_pieces"], "54.000")
         self.assertEqual(response.data["items"][0]["pack_price"], "10800.00")
 
+    def test_receipt_quantity_format_preserves_integer_trailing_zeroes(self):
+        self.assertEqual(TransactionReceiptService._quantity_text(50), "50")
+        self.assertEqual(TransactionReceiptService._quantity_text(60), "60")
+        self.assertEqual(TransactionReceiptService._quantity_text(54), "54")
+        self.assertEqual(TransactionReceiptService._quantity_text(Decimal("1.500")), "1.5")
+
     def test_sale_receipt_total_outstanding_includes_previous_balance(self):
         import uuid
 
@@ -263,6 +328,7 @@ class TenantIsolationApiTests(APITestCase):
         receipt = self.client.get(f"/api/v1/sales/{sale.data['id']}/receipt/")
         with Image.open(BytesIO(receipt.content)) as receipt_image:
             self.assertEqual(receipt_image.info["Transaction Outstanding"], "5.00")
+            self.assertEqual(receipt_image.info["Previous Outstanding"], "7.00")
             self.assertEqual(receipt_image.info["Account Balance After"], "12.00")
 
     def test_store_settings_can_update_store_profile(self):
@@ -490,6 +556,7 @@ class TenantIsolationApiTests(APITestCase):
             self.assertEqual(receipt_image.info["Store"], "Allowed")
             self.assertEqual(receipt_image.info["Transaction Type"], "purchase")
             self.assertEqual(receipt_image.info["Transaction Outstanding"], "5.00")
+            self.assertEqual(receipt_image.info["Previous Outstanding"], "0.00")
             self.assertEqual(receipt_image.info["Account Balance After"], "-5.00")
             self.assertEqual(receipt_image.info["Language"], "en")
         localized_receipt = self.client.get(f"/api/v1/purchases/{first.data['id']}/receipt/?language=am")
