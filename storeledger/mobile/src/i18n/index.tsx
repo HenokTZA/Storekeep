@@ -585,7 +585,6 @@ const amharic: Record<string, string> = {
   'receivables': 'ተሰብሳቢ ሂሳቦች',
   'overdue receivables': 'የዘገዩ ተሰብሳቢ ሂሳቦች',
   'total overdue': 'ጠቅላላ የዘገየ',
-  'customers': 'ደንበኞች',
   'top overdue balances': 'ከፍተኛ የዘገዩ ሂሳቦች',
   'highest open receivables': 'ከፍተኛ ክፍት ተሰብሳቢ ሂሳቦች',
   'sorted by overdue age': 'በዘገየበት ጊዜ ተደርድሯል',
